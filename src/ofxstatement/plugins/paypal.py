@@ -19,8 +19,9 @@ class PayPalPlugin(Plugin):
             print("[Warning] No 'dataformat' found in 'config.ini', please add it with 'ofxstatement edit-config'")
             print(f"[Warning] use USA default: '{dataFormat}'")
         defaultAccount = self.settings.get("default_account")
+        defaultCurrency = self.settings.get("default_currency")
 
-        parser = PayPalParser(f, dataFormat, defaultAccount)
+        parser = PayPalParser(f, dataFormat, defaultAccount, defaultCurrency)
         # TODO: Sort file per date + time
         return parser
 
@@ -53,10 +54,11 @@ class PayPalParser(CsvStatementParser):
     unique_id_set = set()
     filetype = None
 
-    def __init__(self, filePaypal, dataFormat: str, account: str) -> None:
+    def __init__(self, filePaypal, dataFormat: str, account: str, currency: str) -> None:
         super().__init__(filePaypal)
         self.date_format = dataFormat
         self.statement.account_id = account
+        self.statement.currency = currency
 
     def _setFileType(self):
         self.filetype = "csv"
@@ -114,7 +116,8 @@ class PayPalParser(CsvStatementParser):
         date_idx = self.valid_header.index("Date")
         name_idx = self.valid_header.index("Name")
         from_idx = self.valid_header.index("From Email Address")
-        amount_idx = self.valid_header.index("Gross")
+        amount_idx = self.valid_header.index("Net")
+        fee_idx = self.valid_header.index("Fee")
         currency_idx = self.valid_header.index("Currency")
         balance_idx = self.valid_header.index("Balance")
         refnum_idx = self.valid_header.index("Invoice Number")
@@ -135,6 +138,7 @@ class PayPalParser(CsvStatementParser):
         smt_line.date = datetime.strptime(line[date_idx], self.date_format)
         smt_line.currency = Currency(line[currency_idx])
         smt_line.amount = D(line[amount_idx].replace(',', '.').replace(u'\xa0', ''))
+        smt_line.fee = D(line[fee_idx].replace(',', '.').replace(u'\xa0', ''))
 
         smt_line.refnum = line[refnum_idx]
         if line[bankName_idx]:  # Bank transaction
@@ -149,6 +153,8 @@ class PayPalParser(CsvStatementParser):
             "Name",
             "From Email Address",
             "Description",
+            "Gross",
+            "Fee",
             "Invoice Number",
             "Reference Txn ID",
             "Bank Name",
