@@ -5,7 +5,7 @@ from setuptools import setup, find_namespace_packages
 from distutils.core import setup
 
 setup(name='ofxstatement-paypal-2',
-      version='3.0.0-rc1',
+      version='3.0.0-rc2',
       author='Alfystar',
       author_email='alfystar1701@gmail.com',
       url='https://github.com/Alfystar/ofxstatement-paypal.git',
