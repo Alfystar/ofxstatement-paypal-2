@@ -9,16 +9,18 @@ on the work done by gerasiov (https://github.com/gerasiov/ofxstatement-paypal/).
 
 Users of ofxstatement have developed several plugins for their banks. They are listed on main [`ofxstatement`](https://github.com/kedder/ofxstatement) site. If your bank is missing, you can develop your own plugin.
 
+> This repository is a fork of the original project, afrter the original author did not respond to the pull request, we decided to create a new repository to maintain the project.
+
 ## Installation
 
 ### From PyPI repositories
 ```
-pip3 install ofxstatement-paypal
+pip3 install ofxstatement-paypal-2
 ```
 
 ### From source
 ```
-git clone git@github.com:EtsBIZ4Africa/ofxstatement-paypal.git 
+https://github.com/Alfystar/ofxstatement-paypal.git 
 python3 setup.py install
 ```
 
@@ -36,8 +38,8 @@ It's open a `vim` editor with current configuration.
 Now add plug-in configuration, here is example with the default configuration:
 
 ```ini
-[paypal-ng]
-plugin = paypal-ng
+[Conf-Name]
+plugin = paypal-convert
 encoding = utf-8
 dataformat = %%d/%%m/%%Y
 default_account = Paypal Personal
@@ -45,11 +47,14 @@ default_account = Paypal Personal
 
 Now, base on your country, edit:
 
+- `Conf-Name`: is a text string, you can name it as you wish. Is used to identify the configuration selected when you run `ofxstatement convert -t <Conf-Name> input.csv output.ofx`.
 - `dataformat`:  open your PayPal CSV and see your specific data-format.
   - `%%d/%%m/%%Y` is Europe standard.
   - `%%m/%%d/%%Y` is USA standard.
   - etc...
 - `default_account`:  is text string, add on the beginning of the OFX file, help some program, like [Home Bank](http://homebank.free.fr/en/index.php), to detect witch account is used and help in import phase.
+
+> Keep in mind you can have all the configuration you want, just add a new section with the same structure and change the name of the section.
 
 ## Usage
 
@@ -59,14 +64,16 @@ From Paypal Web interface, download a CSV of  `Bank statements` with the persona
 
 Finally, open terminal in the directory where you download the report and type:
 
-```
-$ ofxstatement convert -t paypal-ng input.csv output.ofx
+```bash
+$ ofxstatement convert -t <Conf-Name> input.csv output.ofx
 ```
 
 ### Add Alias
 To simplify the use of the plugin, we strongly recommend adding an alias to your system (if in a Linux environment or on an emulated terminal) by adding the alias of this command to your *.bash_aliases*:
+> **Note**: this alias use for confuguration name `paypal`, if you use another name, change it in the alias
+
 ```bash
-$ printf '\n# Paypal CSV convert to OFX format\nalias ofxPaypal="ofxstatement convert -t paypal-ng"\n' >> ~/.bash_aliases
+$ printf '\n# Paypal CSV convert to OFX format\nalias ofxPaypal="ofxstatement convert -t paypal"\n' >> ~/.bash_aliases
 ```
 After that, reload your terminal (close and then reopen) and the usage change to:
 ```bash

@@ -1,19 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-from setuptools import find_packages
+from setuptools import setup, find_namespace_packages
 from distutils.core import setup
 
-version = '2.2.0'
-with open('README.md') as f:
-    long_description = f.read()
-
-setup(name='ofxstatement-paypal',
-      version=version,
-      author='Business Solutions For Africa',
-      author_email='info@biz-4-africa.com',
-      url='https://github.com/EtsBiz4africa/ofxstatement-paypal',
-      description=('ofxstatement plugins for paypal'),
+setup(name='ofxstatement-paypal-2',
+      version='3.0.0',
+      author='Alfystar',
+      author_email='alfystar1701@gmail.com',
+      url='https://github.com/Alfystar/ofxstatement-paypal.git',
+      description=('Plugin for ofxstatement that support conversion from Paypal csv to OFX'),
       long_description=open("README.md").read(),
       long_description_content_type='text/markdown',
       license='Apache License 2.0',
@@ -27,14 +23,12 @@ setup(name='ofxstatement-paypal',
           'Environment :: Console',
           'Operating System :: OS Independent'
       ],
-      packages=find_packages('src'),
+      packages=find_namespace_packages(where='src', include=['ofxstatement.plugins']),
       package_dir={'': 'src'},
-      namespace_packages=['ofxstatement', 'ofxstatement.plugins'],
       entry_points={
-          'ofxstatement': ['paypal-ng = ofxstatement.plugins.paypal:PayPalPlugin']
+          'ofxstatement': ['paypal-convert = ofxstatement.plugins.paypal:PayPalPlugin']
       },
       install_requires=['ofxstatement'],
-      test_suite='ofxstatement.plugins.tests',
       include_package_data=True,
       zip_safe=True
       )
