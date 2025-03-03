@@ -21,7 +21,7 @@ pip3 install ofxstatement-paypal-2
 ### From source
 ```
 git clone https://github.com/Alfystar/ofxstatement-paypal-2.git
-cd ofxstatement-paypal
+cd ofxstatement-paypal-2
 pip install build
 python3 -m build --sdist --wheel
 pip install dist/ofxstatement_paypal_2-<version>.tar.gz # replace <version> with the version number
