@@ -15,7 +15,7 @@ class PayPalPlugin(Plugin):
         f = open(filename, 'r', encoding=self.settings.get("charset", "UTF-8"))
         dataFormat = self.settings.get("dataformat")
         if dataFormat is None:
-            dataFormat = "%m/%d/%Y" if len(line[0].split("/")[2]) == 4 else "%Y/%m/%d"
+            dataFormat = "%%d/%%m/%%Y"
             print("[Warning] No 'dataformat' found in 'config.ini', please add it with 'ofxstatement edit-config'")
             print(f"[Warning] use USA default: '{dataFormat}'")
         defaultAccount = self.settings.get("default_account")
