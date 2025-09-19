@@ -78,8 +78,7 @@ class PayPalParser(CsvStatementParser):
         return stmt
 
     def split_records(self):
-        """Return iterable object consisting of a line per transaction
-        """
+        """Return iterable object consisting of a line per transaction"""
 
         reader = csv.reader(self.fin, delimiter=',')
         next(reader, None)
