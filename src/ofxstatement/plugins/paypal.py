@@ -33,15 +33,6 @@ class PayPalPlugin(Plugin):
         dataFormat = self.settings.get("dataformat")
         defaultAccount = self.settings.get("default_account")
         defaultCurrency = self.settings.get("default_currency")
-
-        logger.info(
-            "Opening PayPal CSV %s (charset=%s, dataformat=%s, account=%s, currency=%s)",
-            filename, charset,
-            dataFormat or "<auto-detect>",
-            defaultAccount or f"<default: {DEFAULT_ACCOUNT_ID}>",
-            defaultCurrency or "<auto-detect>",
-        )
-
         return PayPalParser(f, dataFormat, defaultAccount, defaultCurrency)
 
 
@@ -98,11 +89,7 @@ class PayPalParser(CsvStatementParser):
             self.statement.account_id = account
         else:
             self.statement.account_id = DEFAULT_ACCOUNT_ID
-            logger.info(
-                "No 'default_account' configured; using '%s'. "
-                "Override via 'ofxstatement edit-config' if needed.",
-                DEFAULT_ACCOUNT_ID,
-            )
+            logger.debug("No 'default_account' configured; using '%s'", DEFAULT_ACCOUNT_ID)
         self.statement.currency = currency
 
     def _setFileType(self) -> None:
@@ -124,9 +111,12 @@ class PayPalParser(CsvStatementParser):
             # dates and would raise on an empty statement — guarded above.
             statement.recalculate_balance(stmt)
             logger.info(
-                "Parsed %d transaction(s) from %s to %s; start_balance=%s end_balance=%s",
-                len(stmt.lines), stmt.start_date, stmt.end_date,
+                "Parsed %d transaction(s) from %s to %s; "
+                "start_balance=%s end_balance=%s "
+                "(dataformat=%s currency=%s account=%s)",
+                len(stmt.lines), stmt.start_date.date(), stmt.end_date.date(),
                 stmt.start_balance, stmt.end_balance,
+                self.date_format, stmt.currency, stmt.account_id,
             )
             self._check_balance_consistency(stmt)
         else:
@@ -237,11 +227,7 @@ class PayPalParser(CsvStatementParser):
                     "Set 'dataformat' in config.ini (e.g. '%d.%m.%Y').",
                 )
             self.date_format = inferred
-            logger.info(
-                "Auto-detected dataformat='%s' from CSV contents. "
-                "Set 'dataformat' in config.ini to override.",
-                inferred,
-            )
+            logger.debug("Auto-detected dataformat='%s'", inferred)
 
         if not self.statement.currency:
             if file_currency is None:
@@ -251,11 +237,7 @@ class PayPalParser(CsvStatementParser):
                     "Set 'default_currency' in config.ini (e.g. 'EUR').",
                 )
             self.statement.currency = file_currency
-            logger.info(
-                "Auto-detected currency='%s' from CSV contents. "
-                "Set 'default_currency' in config.ini to override.",
-                file_currency,
-            )
+            logger.debug("Auto-detected currency='%s'", file_currency)
 
     def _sort_rows_chronologically(self, rows: List[List[str]]) -> None:
         """Sort rows in place by (Date, Time) ascending.
