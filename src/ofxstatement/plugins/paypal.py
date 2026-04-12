@@ -432,21 +432,32 @@ class PayPalParser(CsvStatementParser):
         else:
             smt_line.trntype = "PAYMENT" if smt_line.amount < 0 else "DIRECTDEP"
 
-        # Memo concatenates the populated source columns into a single
-        # pipe-delimited string so the downstream OFX consumer keeps the
-        # full context (counterparty, description, invoice, etc.) in one
-        # searchable field.
+        # `payee` → OFX <NAME> → short counterparty label that downstream
+        # consumers (GnuCash's "Beschreibung", HomeBank's "Payee") show as
+        # the headline of the transaction. `memo` → OFX <MEMO> → longer
+        # free-form context shown in a separate column (GnuCash's
+        # "Buchungstext"). Keeping them distinct avoids the same blob
+        # appearing in both columns.
+        name_idx = self.valid_header.index("Name")
+        desc_idx = self.valid_header.index("Description")
+        smt_line.payee = line[name_idx] or line[desc_idx]
+
+        # Memo carries the richer context (email, invoice, reference IDs,
+        # bank details) minus Name/Description which are already in payee.
         memoLine: List[str] = []
         for column_name in [
-            "Name",
-            "From Email Address",
             "Description",
+            "From Email Address",
             "Gross",
             "Fee",
             "Invoice Number",
             "Reference Txn ID",
             "Bank Name",
         ]:
+            # Description is in payee when Name is empty; skip in that case
+            # to avoid duplication.
+            if column_name == "Description" and not line[name_idx]:
+                continue
             memo_idx = self.valid_header.index(column_name)
             if len(line[memo_idx]):
                 memoLine.append(f"{column_name}:{line[memo_idx]}")

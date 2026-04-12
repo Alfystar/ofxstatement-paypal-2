@@ -197,10 +197,36 @@ class ParseRecordTests(unittest.TestCase):
         )))
         stmt = parser.parse()
         memo = stmt.lines[0].memo
-        self.assertIn("Name:Example Merchant", memo)
+        # Name is in payee, not memo, to avoid Beschreibung/Buchungstext duplication.
+        self.assertNotIn("Name:", memo)
         self.assertIn("Description:Synthetic payment", memo)
         self.assertIn("Invoice Number:INV-1", memo)
         self.assertNotIn("From Email Address:", memo)
+
+    def test_payee_uses_name_when_populated(self):
+        parser = _parser(_csv(_row(
+            Name="Example Merchant",
+            Description="Zahlung im Einzugsverfahren mit Zahlungsrechnung",
+        )))
+        stmt = parser.parse()
+        self.assertEqual(stmt.lines[0].payee, "Example Merchant")
+
+    def test_payee_falls_back_to_description_when_name_empty(self):
+        parser = _parser(_csv(_row(
+            Name="",
+            Description="Bankgutschrift auf PayPal-Konto",
+        )))
+        stmt = parser.parse()
+        self.assertEqual(stmt.lines[0].payee, "Bankgutschrift auf PayPal-Konto")
+
+    def test_description_not_duplicated_in_memo_when_used_as_payee(self):
+        parser = _parser(_csv(_row(
+            Name="",
+            Description="Bankgutschrift auf PayPal-Konto",
+        )))
+        stmt = parser.parse()
+        # Description is in payee as the fallback; shouldn't also appear in memo.
+        self.assertNotIn("Description:", stmt.lines[0].memo)
 
     def test_dot_date_format_via_config(self):
         parser = _parser(_csv(_row(Date="02.01.2025")), date_format="%d.%m.%Y")
