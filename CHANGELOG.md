@@ -14,6 +14,18 @@
   Previously exports that arrived newest-first produced a wrong start.
 
 ### Added
+- **Currency-aware balance math.** Running totals, `start_balance`, and
+  the balance-consistency check now filter rows by the statement
+  currency. Foreign-currency rows (e.g. a USD charge on an EUR
+  statement) no longer corrupt the EUR running total.
+- **Foreign-currency conversion pair-collapse.** PayPal records a
+  foreign purchase as four rows; the parser now detects this pattern,
+  drops the redundant foreign zero-conversion row, and annotates the
+  statement-currency merchant-debit leg with `orig_currency` (a
+  `Currency(symbol=<foreign>, rate=|local|/|foreign|)`), so OFX
+  consumers render `<CURRENCY>EUR</CURRENCY><ORIGCURRENCY>USD</ORIGCURRENCY>`
+  per OFX 2.2 §5.2 CURRATE semantics. Validated against real exports:
+  19/548 groups collapsed in an EUR sample, 46/184 in a CDF sample.
 - **Auto-detection of config settings.** `config.ini` is now optional:
   - `dataformat` inferred from the Date column separator (`.` → DMY dots,
     `-` → ISO, `/` → DMY/MDY disambiguated by any day > 12 in the file).

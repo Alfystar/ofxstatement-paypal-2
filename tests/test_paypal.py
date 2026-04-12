@@ -405,5 +405,106 @@ class ChronologicalSortTests(unittest.TestCase):
         self.assertEqual([sl.id for sl in stmt.lines], ["A", "B", "C"])
 
 
+class CurrencyConversionTests(unittest.TestCase):
+    """PayPal exports a foreign-currency purchase as four rows; the parser
+    collapses the redundant foreign zero-conversion and annotates the
+    statement-currency merchant-debit row with orig_currency metadata."""
+
+    @staticmethod
+    def _conversion_rows(anchor_id="ANCHOR_USD_CHARGE"):
+        # USD charge (anchor) — foreign currency, -12.95 USD
+        charge = _row(
+            Date="02/01/2025", Time="10:00:00",
+            Currency="USD", Gross="-12,95", Net="-12,95",
+            Balance="-12,95",
+            **{
+                "Transaction ID": anchor_id,
+                "Reference Txn ID": "B-EXT-BILLING-AGREEMENT",
+            },
+        )
+        # USD zero-conversion — same currency, opposite sign, cancels anchor
+        zero_usd = _row(
+            Date="02/01/2025", Time="10:00:01",
+            Currency="USD", Gross="12,95", Net="12,95",
+            Balance="0,00",
+            **{
+                "Transaction ID": "USD_ZERO_CONV",
+                "Reference Txn ID": anchor_id,
+                "Name": "",
+            },
+        )
+        # EUR bank credit — statement currency, positive (opposite sign of anchor)
+        bank_credit = _row(
+            Date="02/01/2025", Time="10:00:02",
+            Currency="EUR", Gross="12,98", Net="12,98",
+            Balance="12,98",
+            **{
+                "Transaction ID": "EUR_BANK_CREDIT",
+                "Reference Txn ID": anchor_id,
+                "Name": "",
+            },
+        )
+        # EUR merchant debit — statement currency, negative, no Bank Name
+        merchant_debit = _row(
+            Date="02/01/2025", Time="10:00:03",
+            Currency="EUR", Gross="-12,98", Net="-12,98",
+            Balance="0,00",
+            **{
+                "Transaction ID": "EUR_MERCHANT_DEBIT",
+                "Reference Txn ID": anchor_id,
+                "Name": "Foreign Merchant",
+            },
+        )
+        return [charge, zero_usd, bank_credit, merchant_debit]
+
+    def test_multi_currency_balance_uses_statement_currency_only(self):
+        # Mix: a real EUR expense + an isolated USD charge whose running
+        # USD balance would corrupt start/end_balance if not filtered.
+        eur_expense = _row(
+            Date="03/01/2025", Currency="EUR",
+            Gross="-5,00", Net="-5,00", Balance="-5,00",
+            **{"Transaction ID": "EUR_REAL"},
+        )
+        usd_charge = _row(
+            Date="04/01/2025", Currency="USD",
+            Gross="-20,00", Net="-20,00", Balance="-20,00",
+            **{"Transaction ID": "USD_ISOLATED"},
+        )
+        parser = _parser(_csv(eur_expense, usd_charge), currency="EUR")
+        stmt = parser.parse()
+        # start_balance derived from the EUR row only: -5 - (-5) = 0
+        self.assertEqual(stmt.start_balance, Decimal("0"))
+        # end_balance = 0 + (-5 EUR); the USD -20 must NOT be included
+        self.assertEqual(stmt.end_balance, Decimal("-5"))
+
+    def test_foreign_conversion_pair_collapses(self):
+        rows = self._conversion_rows()
+        parser = _parser(_csv(*rows), currency="EUR")
+        stmt = parser.parse()
+        ids = [sl.id for sl in stmt.lines]
+        # Anchor charge stays; zero-conversion is dropped; both EUR legs kept.
+        self.assertIn("ANCHOR_USD_CHARGE", ids)
+        self.assertNotIn("USD_ZERO_CONV", ids)
+        self.assertIn("EUR_BANK_CREDIT", ids)
+        self.assertIn("EUR_MERCHANT_DEBIT", ids)
+        self.assertEqual(len(stmt.lines), 3)
+
+    def test_orig_currency_annotated_on_merchant_debit(self):
+        rows = self._conversion_rows()
+        parser = _parser(_csv(*rows), currency="EUR")
+        stmt = parser.parse()
+        merchant_debit = next(sl for sl in stmt.lines if sl.id == "EUR_MERCHANT_DEBIT")
+        self.assertIsNotNone(merchant_debit.orig_currency)
+        self.assertEqual(merchant_debit.orig_currency.symbol, "USD")
+        # OFX CURRATE = statement/symbol = |12.98 EUR| / |12.95 USD|
+        self.assertEqual(
+            merchant_debit.orig_currency.rate,
+            Decimal("12.98") / Decimal("12.95"),
+        )
+        # Other rows must not carry orig_currency
+        anchor = next(sl for sl in stmt.lines if sl.id == "ANCHOR_USD_CHARGE")
+        self.assertIsNone(anchor.orig_currency)
+
+
 if __name__ == "__main__":
     unittest.main()

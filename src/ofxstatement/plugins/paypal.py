@@ -4,9 +4,8 @@ import re
 from collections import Counter
 from datetime import datetime
 from decimal import Decimal as D
-from typing import Iterator, List, Optional, Set, TextIO, Tuple
+from typing import Dict, Iterator, List, Optional, Set, TextIO, Tuple
 
-from ofxstatement import statement
 from ofxstatement.exceptions import ParseError
 from ofxstatement.parser import CsvStatementParser
 from ofxstatement.plugin import Plugin
@@ -71,6 +70,9 @@ class PayPalParser(CsvStatementParser):
     # Used in parse() to cross-check the running total against PayPal's own
     # authoritative post-transaction balance.
     _expected_end_balance: Optional[D]
+    # Transaction-ID → original-currency annotation discovered while collapsing
+    # PayPal's 4-row currency-conversion pattern. Applied in parse_record_csv.
+    _orig_currency_map: Dict[str, Currency]
 
     def __init__(
         self,
@@ -85,6 +87,7 @@ class PayPalParser(CsvStatementParser):
         self.date_format = dataFormat
         self.filetype = None
         self._expected_end_balance = None
+        self._orig_currency_map = {}
         if account:
             self.statement.account_id = account
         else:
@@ -104,12 +107,28 @@ class PayPalParser(CsvStatementParser):
         self._setFileType()
         stmt = super(PayPalParser, self).parse()
         if stmt.lines:
-            total_amount = sum(sl.amount for sl in stmt.lines)
-            stmt.end_balance = stmt.start_balance + total_amount
+            # Sum only lines in the statement currency. Foreign-currency rows
+            # (e.g. a USD charge on an EUR statement) carry their native
+            # amount and would otherwise corrupt the EUR running total. The
+            # statement currency-aligned conversion row that balances the
+            # foreign charge is kept, so arithmetic still matches the Balance
+            # column on the final row.
+            total_amount = sum(
+                (sl.amount for sl in stmt.lines
+                 if sl.currency and sl.currency.symbol == stmt.currency),
+                D(0),
+            )
+            # If no row in the statement currency was seen (e.g. config
+            # overrides to a currency not present in the file), default the
+            # opening balance to 0 so end_balance arithmetic still succeeds.
+            if stmt.start_balance is None:
+                stmt.start_balance = D(0)
+            # recalculate_balance() would re-sum over ALL lines (including
+            # foreign-currency) and overwrite end_balance, so we derive
+            # start_date/end_date ourselves and skip it.
+            stmt.start_date = min(sl.date for sl in stmt.lines)
             stmt.end_date = max(sl.date for sl in stmt.lines)
-            # recalculate_balance() derives start_date via min() over line
-            # dates and would raise on an empty statement — guarded above.
-            statement.recalculate_balance(stmt)
+            stmt.end_balance = stmt.start_balance + total_amount
             logger.info(
                 "Parsed %d transaction(s) from %s to %s; "
                 "start_balance=%s end_balance=%s "
@@ -181,6 +200,7 @@ class PayPalParser(CsvStatementParser):
         # usually sorted, but this guarantees correctness regardless.
         self._sort_rows_chronologically(rows)
         self._capture_expected_end_balance(rows)
+        self._collapse_currency_conversions(rows)
         return iter(rows)
 
     def _capture_expected_end_balance(self, rows: List[List[str]]) -> None:
@@ -188,17 +208,135 @@ class PayPalParser(CsvStatementParser):
 
         This is PayPal's authoritative post-transaction balance; parse()
         compares it against the running total derived from line amounts
-        as a drift-detection check.
+        as a drift-detection check. Only rows in the statement currency
+        are considered — foreign-currency rows carry a running balance in
+        their own currency bucket, which must not be compared against the
+        EUR/USD/... running total we compute.
         """
         if not rows:
             return
         balance_idx = self.valid_header.index("Balance")
-        try:
-            self._expected_end_balance = D(self._normalize_amount(rows[-1][balance_idx]))
-        except Exception:
-            # Unparseable balance is not fatal — the sanity check just
-            # gets skipped. parse_record_csv will surface the real error.
-            self._expected_end_balance = None
+        currency_idx = self.valid_header.index("Currency")
+        for row in reversed(rows):
+            if row[currency_idx] != self.statement.currency:
+                continue
+            try:
+                self._expected_end_balance = D(self._normalize_amount(row[balance_idx]))
+            except Exception:
+                # Unparseable balance is not fatal — the sanity check just
+                # gets skipped. parse_record_csv will surface the real error.
+                self._expected_end_balance = None
+            return
+
+    def _collapse_currency_conversions(self, rows: List[List[str]]) -> None:
+        """Detect PayPal's 4-row currency-conversion pattern and collapse it.
+
+        When a purchase is paid in a foreign currency, PayPal records four
+        rows that all share the same ``Reference Txn ID`` (the anchor
+        transaction's own ID):
+          1. Foreign-currency charge (the anchor). TxnID = R.
+          2. Foreign-currency zero-conversion: opposite-sign amount in the
+             same foreign currency, cancelling row 1's foreign sub-balance.
+             RefTxn = R.
+          3. Statement-currency "bank credit" leg: positive amount.
+             RefTxn = R.
+          4. Statement-currency merchant-debit leg: negative amount that
+             cancels row 3. RefTxn = R. This is the line a human recognises
+             as "the actual purchase" in their statement currency.
+
+        Bank Name is NOT a reliable discriminator for legs 3 and 4 — real
+        PayPal exports have it empty on all conversion followers — so we
+        identify them by sign instead: the merchant-debit shares the sign
+        of the anchor (both outflows), the bank-credit is the opposite.
+
+        This method:
+          * Drops row 2 (the foreign zero-conversion) — bookkeeping noise
+            that cancels row 1 in a separate foreign-currency sub-balance.
+          * Populates ``self._orig_currency_map`` keyed by row 4's
+            Transaction ID with a ``Currency(symbol=<foreign>, rate=...)``.
+            parse_record_csv attaches it so OFX renders
+            <CURRENCY>EUR</CURRENCY><ORIGCURRENCY>USD</ORIGCURRENCY>.
+        """
+        if not rows or not self.statement.currency:
+            return
+        txn_idx = self.valid_header.index("Transaction ID")
+        ref_idx = self.valid_header.index("Reference Txn ID")
+        cur_idx = self.valid_header.index("Currency")
+        gross_idx = self.valid_header.index("Gross")
+
+        # Build map: anchor TxnID → row index
+        anchor_by_id: Dict[str, int] = {
+            row[txn_idx]: i for i, row in enumerate(rows) if row[txn_idx]
+        }
+
+        # Group non-anchor rows by their RefTxn ID
+        followers_by_ref: Dict[str, List[int]] = {}
+        for i, row in enumerate(rows):
+            ref = row[ref_idx]
+            if ref and ref in anchor_by_id and anchor_by_id[ref] != i:
+                followers_by_ref.setdefault(ref, []).append(i)
+
+        drop_indices: Set[int] = set()
+        for anchor_id, follower_indices in followers_by_ref.items():
+            anchor_i = anchor_by_id[anchor_id]
+            anchor = rows[anchor_i]
+            foreign_cur = anchor[cur_idx]
+            if foreign_cur == self.statement.currency:
+                continue
+            try:
+                anchor_amt = D(self._normalize_amount(anchor[gross_idx]))
+            except Exception:
+                continue
+            if len(follower_indices) != 3:
+                continue
+
+            # anchor is an outflow in USD (sign < 0) or an inflow (sign > 0);
+            # merchant-debit shares that sign, bank-credit opposes it.
+            foreign_zero = None
+            bank_credit = None
+            merchant_debit = None
+            for fi in follower_indices:
+                frow = rows[fi]
+                try:
+                    famt = D(self._normalize_amount(frow[gross_idx]))
+                except Exception:
+                    break
+                if frow[cur_idx] == foreign_cur and famt == -anchor_amt:
+                    foreign_zero = fi
+                elif frow[cur_idx] == self.statement.currency:
+                    if (famt > 0) != (anchor_amt > 0) and famt != 0:
+                        bank_credit = (fi, famt)
+                    elif (famt > 0) == (anchor_amt > 0) and famt != 0:
+                        merchant_debit = (fi, famt)
+
+            if foreign_zero is None or bank_credit is None or merchant_debit is None:
+                continue
+            bc_amt = bank_credit[1]
+            md_amt = merchant_debit[1]
+            # Bank credit and merchant debit must cancel each other.
+            if bc_amt + md_amt != D(0):
+                continue
+
+            drop_indices.add(foreign_zero)
+            md_row = rows[merchant_debit[0]]
+            md_txn_id = md_row[txn_idx]
+            if md_txn_id:
+                # OFX CURRATE = |statement-currency amount| / |foreign amount|
+                # (ratio of statement/symbol per OFX 2.2 §5.2).
+                rate = abs(md_amt) / abs(anchor_amt)
+                self._orig_currency_map[md_txn_id] = Currency(
+                    symbol=foreign_cur, rate=rate
+                )
+
+        if drop_indices:
+            kept = [row for i, row in enumerate(rows) if i not in drop_indices]
+            rows.clear()
+            rows.extend(kept)
+            logger.info(
+                "Collapsed %d foreign-currency conversion row(s); "
+                "annotated %d merchant-debit row(s) with orig_currency",
+                len(drop_indices), len(self._orig_currency_map),
+            )
 
     def _auto_detect_settings(self, rows: List[List[str]]) -> None:
         """Infer date_format and statement.currency from the CSV body.
@@ -406,13 +544,21 @@ class PayPalParser(CsvStatementParser):
             # statement is (first row's Balance) − (first row's Net).
             # split_records() sorts rows chronologically, so the first row we
             # see is guaranteed to be the earliest transaction.
+            #
+            # start_balance must only be derived from a row in the statement
+            # currency — a leading foreign-currency row carries its Balance in
+            # its own currency bucket, which would corrupt the EUR/USD/...
+            # opening balance. For the first seen row, record start_date; only
+            # set start_balance when the row matches the statement currency.
             self.statement.start_date = datetime.strptime(line[date_idx], self.date_format)
+        if self.statement.start_balance is None and line[currency_idx] == self.statement.currency:
             balance_str = self._normalize_amount(line[balance_idx])
             amount_str = self._normalize_amount(line[amount_idx])
             self.statement.start_balance = D(balance_str) - D(amount_str)
             logger.debug(
-                "Derived start_balance=%s from first row (balance=%s, net=%s)",
-                self.statement.start_balance, balance_str, amount_str,
+                "Derived start_balance=%s from first %s row (balance=%s, net=%s)",
+                self.statement.start_balance, self.statement.currency,
+                balance_str, amount_str,
             )
 
         smt_line = StatementLine()
@@ -421,6 +567,14 @@ class PayPalParser(CsvStatementParser):
         smt_line.currency = Currency(line[currency_idx])
         smt_line.amount = D(self._normalize_amount(line[amount_idx]))
         smt_line.fee = D(self._normalize_amount(line[fee_idx]))
+
+        # If this row is the statement-currency merchant-debit leg of a
+        # PayPal 4-row conversion, _collapse_currency_conversions will have
+        # stashed a Currency(symbol=<foreign>, rate=<local/foreign>) here.
+        # Applied so OFX renders <CURRENCY> + <ORIGCURRENCY> for consumers.
+        orig = self._orig_currency_map.get(smt_line.id)
+        if orig is not None:
+            smt_line.orig_currency = orig
 
         smt_line.refnum = line[refnum_idx]
         # Bank Name is populated only when PayPal settles to/from a linked
