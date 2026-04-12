@@ -59,6 +59,22 @@ The inferred values are logged at `INFO` level so you can verify them in the
 output. Rows are also sorted chronologically (by Date, then Time) before
 processing, so exports that arrive newest-first are handled correctly.
 
+#### Multi-currency & foreign-currency purchases
+
+A PayPal account can hold multiple currency balances, and a purchase in a
+foreign currency is exported as a four-row conversion group (foreign
+charge + foreign zero-conversion + two statement-currency legs). The
+parser:
+
+- Computes the running balance only from rows in the statement currency
+  (chosen via auto-detect or `default_currency`), so foreign-currency
+  rows can't corrupt the total.
+- Collapses each conversion group: drops the redundant foreign
+  zero-conversion row and annotates the statement-currency leg with
+  `<ORIGCURRENCY>` carrying the foreign symbol and exchange rate. OFX
+  consumers (GnuCash, HomeBank, …) then show the booked amount together
+  with the original, e.g. `−12.98 EUR (originally −12.95 USD)`.
+
 #### Overriding via config.ini
 
 To override any inferred value — or to define a named profile for the CLI —
