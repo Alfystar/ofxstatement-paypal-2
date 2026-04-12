@@ -30,16 +30,36 @@ pip install dist/ofxstatement_paypal_2-<version>.tar.gz # replace <version> with
 
 ### Configuration
 
-You have to configure some parameter in your local environment to allow the conversion.
+**Configuration is optional.** The plugin inspects the CSV contents and infers
+every setting it needs (date format, currency, account label). You only need a
+config entry if you want to override one of the inferred values or give your
+conversion profile a convenient alias for the CLI.
 
-To edit the config file, run this command:
+#### Auto-detection behaviour
+
+When a setting is not provided, the plugin infers it as follows:
+
+| Setting | Inferred from | Fallback |
+| --- | --- | --- |
+| `dataformat` | Date column: `.` → `%d.%m.%Y`, `-` → `%Y-%m-%d`, `/` → DMY/MDY decided by any day > 12 in the file; if ambiguous, USD-majority files pick MDY, everything else picks DMY | Raises if the separator is unrecognised |
+| `default_currency` | Most frequent value in the Currency column | Raises if no Currency values are present |
+| `default_account` | — | `"PayPal"` |
+| `charset` | — | `UTF-8` |
+
+The inferred values are logged at `INFO` level so you can verify them in the
+output. Rows are also sorted chronologically (by Date, then Time) before
+processing, so exports that arrive newest-first are handled correctly.
+
+#### Overriding via config.ini
+
+To override any inferred value — or to define a named profile for the CLI —
+run:
 
 ```bash
 $ ofxstatement edit-config
 ```
-It's open a `vim` editor with current configuration.
 
-Now add plug-in configuration, here is example with the default configuration:
+and add a section like:
 
 ```ini
 [Conf-Name]
@@ -50,16 +70,18 @@ default_currency = EUR
 default_account = Paypal Personal
 ```
 
-Now, base on your country, edit:
+- `Conf-Name`: any identifier; used with `ofxstatement convert -t <Conf-Name> input.csv output.ofx`.
+- `dataformat`: strptime format matching your PayPal CSV's Date column. Common values:
+  - `%%d/%%m/%%Y` — Europe (DMY with slashes)
+  - `%%d.%%m.%%Y` — Germany / Italy / etc. (DMY with dots)
+  - `%%m/%%d/%%Y` — USA (MDY with slashes)
+  - `%%Y-%%m-%%d` — ISO
+  - (The `%%` double-percent escape is required by the INI parser; it becomes a single `%` when read.)
+- `default_currency`: three-letter ISO code (`EUR`, `USD`, `GBP`, …).
+- `default_account`: shown in the OFX output; helps tools like [HomeBank](http://homebank.free.fr/en/index.php) route imports to the right account.
 
-- `Conf-Name`: is a text string, you can name it as you wish. Is used to identify the configuration selected when you run `ofxstatement convert -t <Conf-Name> input.csv output.ofx`.
-- `dataformat`:  open your PayPal CSV and see your specific data-format.
-  - `%%d/%%m/%%Y` is Europe standard.
-  - `%%m/%%d/%%Y` is USA standard.
-  - etc...
-- `default_account`:  is text string, add on the beginning of the OFX file, help some program, like [Home Bank](http://homebank.free.fr/en/index.php), to detect witch account is used and help in import phase.
-
-> Keep in mind you can have all the configuration you want, just add a new section with the same structure and change the name of the section.
+> Omit any field you're happy to let the plugin infer. You can define multiple
+> sections with different names to keep several profiles side by side.
 
 ## Usage
 
@@ -97,6 +119,37 @@ After that, reload your terminal (close and then reopen) and the usage change to
 ```
 
 
+
+## Development
+
+The plugin uses a PEP 517/621 `pyproject.toml` layout. To run the test suite
+from a source checkout:
+
+```bash
+$ python3 -m unittest discover -s tests
+```
+
+Tests are pure stdlib `unittest` and load the plugin module directly from
+`src/`, so they run without installing the package.
+
+### Anonymizing a PayPal CSV
+
+`scripts/anonymize_paypal.py` strips personally identifying fields
+(description, email, name, bank details, invoice/transaction IDs) from a
+real PayPal export while preserving everything the parser cares about:
+column shape, locale-specific header labels, date format, decimal
+separator, currency codes, and the Gross/Fee/Net/Balance arithmetic. It
+runs on pure stdlib — no ofxstatement install required — so it's safe to
+hand to end users who want to scrub a CSV before attaching it to a bug
+report.
+
+```bash
+$ python3 scripts/anonymize_paypal.py input.csv output.csv [--seed N]
+```
+
+Transaction-ID mapping is deterministic per seed, and `Reference Txn ID`
+entries are rewritten through the same map so cross-references between
+rows stay consistent in the anonymized output.
 
 ## How use OFX file after conversion
 

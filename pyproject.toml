@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ofxstatement-paypal-2"
+version = "3.2.0"
+authors = [
+  { name = "Alfystar", email = "alfystar1701@gmail.com" },
+]
+description = "Plugin for ofxstatement that supports conversion from PayPal CSV to OFX"
+readme = {file = "README.md", content-type = "text/markdown"}
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Programming Language :: Python :: 3",
+    "Natural Language :: English",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "Topic :: Utilities",
+    "Environment :: Console",
+    "Operating System :: OS Independent",
+    "License :: OSI Approved :: Apache Software License",
+]
+keywords = ["ofx", "ofxstatement", "paypal"]
+dependencies = [
+  "ofxstatement>=0.7.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/Alfystar/ofxstatement-paypal.git"
+
+[project.entry-points."ofxstatement"]
+paypal-convert = "ofxstatement.plugins.paypal:PayPalPlugin"
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "mypy",
+  "black",
+  "ruff",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["ofxstatement.plugins*"]
+namespaces = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = false
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
