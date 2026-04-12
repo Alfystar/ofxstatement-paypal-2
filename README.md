@@ -144,10 +144,12 @@ Tests are pure stdlib `unittest` and load the plugin module directly from
 ### Anonymizing a PayPal CSV
 
 `scripts/anonymize_paypal.py` strips personally identifying fields
-(description, email, name, bank details, invoice/transaction IDs) from a
-real PayPal export while preserving everything the parser cares about:
-column shape, locale-specific header labels, date format, decimal
-separator, currency codes, and the Gross/Fee/Net/Balance arithmetic. It
+(email, name, bank details, invoice/transaction IDs) from a real PayPal
+export while preserving everything the parser cares about: column shape,
+locale-specific header labels, Description (a small fixed vocabulary of
+booking-type labels like "Bankgutschrift auf PayPal-Konto"), date
+format, decimal separator, currency codes, and the Gross/Fee/Net/Balance
+arithmetic. It
 runs on pure stdlib — no ofxstatement install required — so it's safe to
 hand to end users who want to scrub a CSV before attaching it to a bug
 report.

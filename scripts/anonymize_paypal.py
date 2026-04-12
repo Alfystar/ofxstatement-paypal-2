@@ -10,7 +10,6 @@ Usage:
     python3 scripts/anonymize_paypal.py input.csv output.csv [--seed N]
 
 What gets scrubbed (by column position, so locale headers are fine):
-    3  Description       → "Synthetic transaction"
     9  Transaction ID    → stable synthetic ID (seeded)
     10 From Email        → user<n>@example.invalid
     11 Name              → "Counterparty <n>"
@@ -21,6 +20,8 @@ What gets scrubbed (by column position, so locale headers are fine):
 
 What stays exactly as-is (required for parser behaviour / test realism):
     0  Date, 1 Time, 2 Time Zone
+    3  Description (PayPal booking-type labels like "Bankgutschrift auf
+       PayPal-Konto" — a small fixed vocabulary, not PII)
     4  Currency
     5  Gross, 6 Fee, 7 Net, 8 Balance
     14 Delivery Fees, 15 Sales Tax
@@ -44,7 +45,6 @@ from typing import Dict, List
 
 EXPECTED_COLUMN_COUNT = 18
 
-DESCRIPTION_IDX = 3
 TXN_ID_IDX = 9
 EMAIL_IDX = 10
 NAME_IDX = 11
@@ -80,7 +80,6 @@ def _build_txn_id_mapping(rows: List[List[str]], rng: random.Random) -> Dict[str
 def anonymize_row(row: List[str], index: int, txn_map: Dict[str, str]) -> List[str]:
     row = list(row)
 
-    row[DESCRIPTION_IDX] = "Synthetic transaction"
     row[TXN_ID_IDX] = txn_map[row[TXN_ID_IDX]]
     row[EMAIL_IDX] = f"user{index}@example.invalid" if row[EMAIL_IDX] else ""
     row[NAME_IDX] = f"Counterparty {index}" if row[NAME_IDX] else ""
