@@ -36,6 +36,13 @@
   auto-detection, and chronological sorting.
 
 ### Changed
+- **Renamed plugin entry point `paypal-convert` → `paypal`.** Users with
+  an existing `[section]` in `config.ini` that sets `plugin = paypal-convert`
+  must update it to `plugin = paypal`. With no config.ini, the CLI can
+  now be invoked as `ofxstatement convert -t paypal input.csv output.ofx`
+  since ofxstatement falls back to plugin-name lookup.
+- Added a docstring on `PayPalPlugin` so `ofxstatement list-plugins`
+  shows a description next to the plugin name.
 - Migrated packaging from `setup.py` to PEP 621 `pyproject.toml`; removed
   stale `requirements.txt`.
 - Replaced generic `ValueError` with ofxstatement's framework

@@ -22,6 +22,7 @@ DEFAULT_ACCOUNT_ID = "PayPal"
 
 
 class PayPalPlugin(Plugin):
+    """PayPal activity CSV → OFX converter with locale auto-detection"""
 
     def get_parser(self, filename: str) -> "PayPalParser":
         charset = self.settings.get("charset", "UTF-8")

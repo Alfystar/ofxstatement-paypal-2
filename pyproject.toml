@@ -30,7 +30,7 @@ dependencies = [
 Homepage = "https://github.com/Alfystar/ofxstatement-paypal.git"
 
 [project.entry-points."ofxstatement"]
-paypal-convert = "ofxstatement.plugins.paypal:PayPalPlugin"
+paypal = "ofxstatement.plugins.paypal:PayPalPlugin"
 
 [project.optional-dependencies]
 dev = [

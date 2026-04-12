@@ -35,6 +35,15 @@ every setting it needs (date format, currency, account label). You only need a
 config entry if you want to override one of the inferred values or give your
 conversion profile a convenient alias for the CLI.
 
+With no config.ini at all, you can invoke the plugin by its registered name:
+
+```bash
+$ ofxstatement convert -t paypal input.csv output.ofx
+```
+
+ofxstatement falls back to looking up plugins by name when `-t` doesn't match
+a config section.
+
 #### Auto-detection behaviour
 
 When a setting is not provided, the plugin infers it as follows:
@@ -63,7 +72,7 @@ and add a section like:
 
 ```ini
 [Conf-Name]
-plugin = paypal-convert
+plugin = paypal
 encoding = utf-8
 dataformat = %%d/%%m/%%Y
 default_currency = EUR
