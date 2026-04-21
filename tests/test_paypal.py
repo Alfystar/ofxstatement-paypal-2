@@ -7,9 +7,17 @@ import unittest
 from datetime import datetime
 from decimal import Decimal
 
+from ofxstatement.exceptions import ParseError
+
 
 def _load_paypal_module():
-    path = pathlib.Path(__file__).resolve().parent.parent / "src" / "ofxstatement" / "plugins" / "paypal.py"
+    path = (
+        pathlib.Path(__file__).resolve().parent.parent
+        / "src"
+        / "ofxstatement"
+        / "plugins"
+        / "paypal.py"
+    )
     spec = importlib.util.spec_from_file_location("paypal_under_test", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["paypal_under_test"] = module
@@ -21,8 +29,6 @@ _paypal = _load_paypal_module()
 PayPalParser = _paypal.PayPalParser
 DEFAULT_ACCOUNT_ID = _paypal.DEFAULT_ACCOUNT_ID
 
-from ofxstatement.exceptions import ParseError
-
 # Synthetic fixtures below intentionally use static Balance=90,00 across rows,
 # which trips the real balance-consistency sanity check. Silence the plugin's
 # logger so the test output stays clean; actual parse behaviour is still
@@ -31,19 +37,45 @@ logging.getLogger(_paypal.__name__).setLevel(logging.CRITICAL)
 
 
 ENGLISH_HEADER = [
-    "Date", "Time", "Time Zone", "Description", "Currency",
-    "Gross", "Fee", "Net", "Balance", "Transaction ID",
-    "From Email Address", "Name", "Bank Name", "Bank Account",
-    "Deliver And Handling Fees", "Sales Tax",
-    "Invoice Number", "Reference Txn ID",
+    "Date",
+    "Time",
+    "Time Zone",
+    "Description",
+    "Currency",
+    "Gross",
+    "Fee",
+    "Net",
+    "Balance",
+    "Transaction ID",
+    "From Email Address",
+    "Name",
+    "Bank Name",
+    "Bank Account",
+    "Deliver And Handling Fees",
+    "Sales Tax",
+    "Invoice Number",
+    "Reference Txn ID",
 ]
 
 GERMAN_HEADER = [
-    "Datum", "Uhrzeit", "Zeitzone", "Beschreibung", "Waehrung",
-    "Brutto", "Entgelt", "Netto", "Guthaben", "Transaktionscode",
-    "Absender E-Mail-Adresse", "Name", "Name der Bank", "Bankkonto",
-    "Versand- und Bearbeitungsgebuehr", "Umsatzsteuer",
-    "Rechnungsnummer", "Zugehoeriger Transaktionscode",
+    "Datum",
+    "Uhrzeit",
+    "Zeitzone",
+    "Beschreibung",
+    "Waehrung",
+    "Brutto",
+    "Entgelt",
+    "Netto",
+    "Guthaben",
+    "Transaktionscode",
+    "Absender E-Mail-Adresse",
+    "Name",
+    "Name der Bank",
+    "Bankkonto",
+    "Versand- und Bearbeitungsgebuehr",
+    "Umsatzsteuer",
+    "Rechnungsnummer",
+    "Zugehoeriger Transaktionscode",
 ]
 
 
@@ -137,9 +169,16 @@ class ParseRecordTests(unittest.TestCase):
         self.assertEqual(stmt.lines[0].trntype, "DIRECTDEP")
 
     def test_bank_transaction_is_xfer(self):
-        parser = _parser(_csv(_row(
-            **{"Bank Name": "Example Bank", "Bank Account": "DE00 0000 0000 0000"}
-        )))
+        parser = _parser(
+            _csv(
+                _row(
+                    **{
+                        "Bank Name": "Example Bank",
+                        "Bank Account": "DE00 0000 0000 0000",
+                    }
+                )
+            )
+        )
         stmt = parser.parse()
         self.assertEqual(stmt.lines[0].trntype, "XFER")
 
@@ -178,10 +217,17 @@ class ParseRecordTests(unittest.TestCase):
 
     def test_end_balance_accumulates(self):
         rows = [
-            _row(Net="-10,00", Balance="90,00",
-                 **{"Transaction ID": "TXN001", "Date": "02/01/2025"}),
-            _row(Net="5,00", Gross="5,00", Balance="95,00",
-                 **{"Transaction ID": "TXN002", "Date": "03/01/2025"}),
+            _row(
+                Net="-10,00",
+                Balance="90,00",
+                **{"Transaction ID": "TXN001", "Date": "02/01/2025"},
+            ),
+            _row(
+                Net="5,00",
+                Gross="5,00",
+                Balance="95,00",
+                **{"Transaction ID": "TXN002", "Date": "03/01/2025"},
+            ),
         ]
         parser = _parser(_csv(*rows))
         stmt = parser.parse()
@@ -190,11 +236,15 @@ class ParseRecordTests(unittest.TestCase):
         self.assertEqual(stmt.end_date, datetime(2025, 1, 3))
 
     def test_memo_contains_populated_fields_only(self):
-        parser = _parser(_csv(_row(
-            Name="Example Merchant",
-            Description="Synthetic payment",
-            **{"Invoice Number": "INV-1", "From Email Address": ""},
-        )))
+        parser = _parser(
+            _csv(
+                _row(
+                    Name="Example Merchant",
+                    Description="Synthetic payment",
+                    **{"Invoice Number": "INV-1", "From Email Address": ""},
+                )
+            )
+        )
         stmt = parser.parse()
         memo = stmt.lines[0].memo
         # Name is in payee, not memo, to avoid Beschreibung/Buchungstext duplication.
@@ -204,26 +254,38 @@ class ParseRecordTests(unittest.TestCase):
         self.assertNotIn("From Email Address:", memo)
 
     def test_payee_uses_name_when_populated(self):
-        parser = _parser(_csv(_row(
-            Name="Example Merchant",
-            Description="Zahlung im Einzugsverfahren mit Zahlungsrechnung",
-        )))
+        parser = _parser(
+            _csv(
+                _row(
+                    Name="Example Merchant",
+                    Description="Zahlung im Einzugsverfahren mit Zahlungsrechnung",
+                )
+            )
+        )
         stmt = parser.parse()
         self.assertEqual(stmt.lines[0].payee, "Example Merchant")
 
     def test_payee_falls_back_to_description_when_name_empty(self):
-        parser = _parser(_csv(_row(
-            Name="",
-            Description="Bankgutschrift auf PayPal-Konto",
-        )))
+        parser = _parser(
+            _csv(
+                _row(
+                    Name="",
+                    Description="Bankgutschrift auf PayPal-Konto",
+                )
+            )
+        )
         stmt = parser.parse()
         self.assertEqual(stmt.lines[0].payee, "Bankgutschrift auf PayPal-Konto")
 
     def test_description_not_duplicated_in_memo_when_used_as_payee(self):
-        parser = _parser(_csv(_row(
-            Name="",
-            Description="Bankgutschrift auf PayPal-Konto",
-        )))
+        parser = _parser(
+            _csv(
+                _row(
+                    Name="",
+                    Description="Bankgutschrift auf PayPal-Konto",
+                )
+            )
+        )
         stmt = parser.parse()
         # Description is in payee as the fallback; shouldn't also appear in memo.
         self.assertNotIn("Description:", stmt.lines[0].memo)
@@ -352,13 +414,18 @@ class ChronologicalSortTests(unittest.TestCase):
 
     def test_reversed_rows_are_sorted(self):
         earliest = _row(
-            Date="02/01/2025", Time="10:00:00",
-            Net="-10,00", Balance="90,00",
+            Date="02/01/2025",
+            Time="10:00:00",
+            Net="-10,00",
+            Balance="90,00",
             **{"Transaction ID": "FIRST"},
         )
         latest = _row(
-            Date="10/01/2025", Time="10:00:00",
-            Net="5,00", Gross="5,00", Balance="95,00",
+            Date="10/01/2025",
+            Time="10:00:00",
+            Net="5,00",
+            Gross="5,00",
+            Balance="95,00",
             **{"Transaction ID": "SECOND"},
         )
         parser = self._parser(_csv(latest, earliest))
@@ -367,13 +434,18 @@ class ChronologicalSortTests(unittest.TestCase):
 
     def test_start_balance_uses_chronologically_earliest_row(self):
         earliest = _row(
-            Date="02/01/2025", Time="10:00:00",
-            Net="-10,00", Balance="90,00",
+            Date="02/01/2025",
+            Time="10:00:00",
+            Net="-10,00",
+            Balance="90,00",
             **{"Transaction ID": "FIRST"},
         )
         latest = _row(
-            Date="10/01/2025", Time="10:00:00",
-            Net="5,00", Gross="5,00", Balance="95,00",
+            Date="10/01/2025",
+            Time="10:00:00",
+            Net="5,00",
+            Gross="5,00",
+            Balance="95,00",
             **{"Transaction ID": "SECOND"},
         )
         parser = self._parser(_csv(latest, earliest))
@@ -383,11 +455,13 @@ class ChronologicalSortTests(unittest.TestCase):
 
     def test_same_day_rows_sorted_by_time(self):
         later_time = _row(
-            Date="02/01/2025", Time="15:00:00",
+            Date="02/01/2025",
+            Time="15:00:00",
             **{"Transaction ID": "LATER"},
         )
         earlier_time = _row(
-            Date="02/01/2025", Time="09:00:00",
+            Date="02/01/2025",
+            Time="09:00:00",
             **{"Transaction ID": "EARLIER"},
         )
         parser = self._parser(_csv(later_time, earlier_time))
@@ -414,8 +488,11 @@ class CurrencyConversionTests(unittest.TestCase):
     def _conversion_rows(anchor_id="ANCHOR_USD_CHARGE"):
         # USD charge (anchor) — foreign currency, -12.95 USD
         charge = _row(
-            Date="02/01/2025", Time="10:00:00",
-            Currency="USD", Gross="-12,95", Net="-12,95",
+            Date="02/01/2025",
+            Time="10:00:00",
+            Currency="USD",
+            Gross="-12,95",
+            Net="-12,95",
             Balance="-12,95",
             **{
                 "Transaction ID": anchor_id,
@@ -424,8 +501,11 @@ class CurrencyConversionTests(unittest.TestCase):
         )
         # USD zero-conversion — same currency, opposite sign, cancels anchor
         zero_usd = _row(
-            Date="02/01/2025", Time="10:00:01",
-            Currency="USD", Gross="12,95", Net="12,95",
+            Date="02/01/2025",
+            Time="10:00:01",
+            Currency="USD",
+            Gross="12,95",
+            Net="12,95",
             Balance="0,00",
             **{
                 "Transaction ID": "USD_ZERO_CONV",
@@ -435,8 +515,11 @@ class CurrencyConversionTests(unittest.TestCase):
         )
         # EUR bank credit — statement currency, positive (opposite sign of anchor)
         bank_credit = _row(
-            Date="02/01/2025", Time="10:00:02",
-            Currency="EUR", Gross="12,98", Net="12,98",
+            Date="02/01/2025",
+            Time="10:00:02",
+            Currency="EUR",
+            Gross="12,98",
+            Net="12,98",
             Balance="12,98",
             **{
                 "Transaction ID": "EUR_BANK_CREDIT",
@@ -446,8 +529,11 @@ class CurrencyConversionTests(unittest.TestCase):
         )
         # EUR merchant debit — statement currency, negative, no Bank Name
         merchant_debit = _row(
-            Date="02/01/2025", Time="10:00:03",
-            Currency="EUR", Gross="-12,98", Net="-12,98",
+            Date="02/01/2025",
+            Time="10:00:03",
+            Currency="EUR",
+            Gross="-12,98",
+            Net="-12,98",
             Balance="0,00",
             **{
                 "Transaction ID": "EUR_MERCHANT_DEBIT",
@@ -461,13 +547,19 @@ class CurrencyConversionTests(unittest.TestCase):
         # Mix: a real EUR expense + an isolated USD charge whose running
         # USD balance would corrupt start/end_balance if not filtered.
         eur_expense = _row(
-            Date="03/01/2025", Currency="EUR",
-            Gross="-5,00", Net="-5,00", Balance="-5,00",
+            Date="03/01/2025",
+            Currency="EUR",
+            Gross="-5,00",
+            Net="-5,00",
+            Balance="-5,00",
             **{"Transaction ID": "EUR_REAL"},
         )
         usd_charge = _row(
-            Date="04/01/2025", Currency="USD",
-            Gross="-20,00", Net="-20,00", Balance="-20,00",
+            Date="04/01/2025",
+            Currency="USD",
+            Gross="-20,00",
+            Net="-20,00",
+            Balance="-20,00",
             **{"Transaction ID": "USD_ISOLATED"},
         )
         parser = _parser(_csv(eur_expense, usd_charge), currency="EUR")

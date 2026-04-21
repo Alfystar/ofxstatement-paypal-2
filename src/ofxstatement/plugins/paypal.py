@@ -11,7 +11,6 @@ from ofxstatement.parser import CsvStatementParser
 from ofxstatement.plugin import Plugin
 from ofxstatement.statement import Currency, Statement, StatementLine
 
-
 logger = logging.getLogger(__name__)
 
 # Fallback account id when config.ini sets no 'default_account'. The OFX
@@ -25,7 +24,7 @@ class PayPalPlugin(Plugin):
 
     def get_parser(self, filename: str) -> "PayPalParser":
         charset = self.settings.get("charset", "UTF-8")
-        f = open(filename, 'r', encoding=charset)
+        f = open(filename, "r", encoding=charset)
         # Every setting below is optional — when absent the parser infers it
         # from the CSV contents (or falls back to a constant for account_id).
         # config.ini remains authoritative whenever it supplies a value.
@@ -63,7 +62,7 @@ class PayPalParser(CsvStatementParser):
         "Reference Txn ID",
     ]
 
-    date_format: Optional[str]
+    date_format: Optional[str]  # type: ignore[assignment]  # base class declares str; we stay None until split_records() infers it
     filetype: Optional[str]
     unique_id_set: Set[str] = set()
     # End balance captured from the last row's Balance column before parsing.
@@ -92,7 +91,9 @@ class PayPalParser(CsvStatementParser):
             self.statement.account_id = account
         else:
             self.statement.account_id = DEFAULT_ACCOUNT_ID
-            logger.debug("No 'default_account' configured; using '%s'", DEFAULT_ACCOUNT_ID)
+            logger.debug(
+                "No 'default_account' configured; using '%s'", DEFAULT_ACCOUNT_ID
+            )
         self.statement.currency = currency
 
     def _setFileType(self) -> None:
@@ -114,10 +115,18 @@ class PayPalParser(CsvStatementParser):
             # foreign charge is kept, so arithmetic still matches the Balance
             # column on the final row.
             total_amount = sum(
-                (sl.amount for sl in stmt.lines
-                 if sl.currency and sl.currency.symbol == stmt.currency),
+                (
+                    sl.amount
+                    for sl in stmt.lines
+                    if sl.amount is not None
+                    and sl.currency
+                    and sl.currency.symbol == stmt.currency
+                ),
                 D(0),
             )
+            dates = [sl.date for sl in stmt.lines if sl.date is not None]
+            start_dt = min(dates)
+            end_dt = max(dates)
             # If no row in the statement currency was seen (e.g. config
             # overrides to a currency not present in the file), default the
             # opening balance to 0 so end_balance arithmetic still succeeds.
@@ -126,16 +135,21 @@ class PayPalParser(CsvStatementParser):
             # recalculate_balance() would re-sum over ALL lines (including
             # foreign-currency) and overwrite end_balance, so we derive
             # start_date/end_date ourselves and skip it.
-            stmt.start_date = min(sl.date for sl in stmt.lines)
-            stmt.end_date = max(sl.date for sl in stmt.lines)
+            stmt.start_date = start_dt
+            stmt.end_date = end_dt
             stmt.end_balance = stmt.start_balance + total_amount
             logger.info(
                 "Parsed %d transaction(s) from %s to %s; "
                 "start_balance=%s end_balance=%s "
                 "(dataformat=%s currency=%s account=%s)",
-                len(stmt.lines), stmt.start_date.date(), stmt.end_date.date(),
-                stmt.start_balance, stmt.end_balance,
-                self.date_format, stmt.currency, stmt.account_id,
+                len(stmt.lines),
+                start_dt.date(),
+                end_dt.date(),
+                stmt.start_balance,
+                stmt.end_balance,
+                self.date_format,
+                stmt.currency,
+                stmt.account_id,
             )
             self._check_balance_consistency(stmt)
         else:
@@ -151,7 +165,7 @@ class PayPalParser(CsvStatementParser):
         mishandling a new locale, a silently skipped row, or a column
         layout change that isn't caught by header validation.
         """
-        if self._expected_end_balance is None:
+        if self._expected_end_balance is None or stmt.end_balance is None:
             return
         if stmt.end_balance == self._expected_end_balance:
             return
@@ -161,13 +175,15 @@ class PayPalParser(CsvStatementParser):
             "last row's Balance column reports %s (difference %s). Likely "
             "causes: amount parsing drift, a skipped row, or a PayPal "
             "column-layout change.",
-            stmt.end_balance, self._expected_end_balance, diff,
+            stmt.end_balance,
+            self._expected_end_balance,
+            diff,
         )
 
     def split_records(self) -> Iterator[List[str]]:
         """Return iterable object consisting of a line per transaction."""
 
-        reader = csv.reader(self.fin, delimiter=',')
+        reader = csv.reader(self.fin, delimiter=",")
         header = next(reader, None)
         if header is None:
             logger.error("PayPal CSV is empty: no header row found")
@@ -178,7 +194,9 @@ class PayPalParser(CsvStatementParser):
             # or the file isn't a PayPal activity CSV at all.
             logger.error(
                 "Unexpected PayPal CSV header: got %d columns, expected %d. Header row: %r",
-                len(header), len(self.valid_header), header,
+                len(header),
+                len(self.valid_header),
+                header,
             )
             raise ParseError(
                 1,
@@ -335,7 +353,8 @@ class PayPalParser(CsvStatementParser):
             logger.info(
                 "Collapsed %d foreign-currency conversion row(s); "
                 "annotated %d merchant-debit row(s) with orig_currency",
-                len(drop_indices), len(self._orig_currency_map),
+                len(drop_indices),
+                len(self._orig_currency_map),
             )
 
     def _auto_detect_settings(self, rows: List[List[str]]) -> None:
@@ -357,7 +376,9 @@ class PayPalParser(CsvStatementParser):
 
         if self.date_format is None:
             date_idx = self.valid_header.index("Date")
-            inferred = self._detect_date_format(rows, date_idx, currency_hint=file_currency)
+            inferred = self._detect_date_format(
+                rows, date_idx, currency_hint=file_currency
+            )
             if inferred is None:
                 raise ParseError(
                     0,
@@ -423,13 +444,13 @@ class PayPalParser(CsvStatementParser):
         whichever of ',' or '.' appears LAST as the decimal separator and
         remove every occurrence of the other character (thousands).
         """
-        s = value.replace('\xa0', '').replace(' ', '')
-        last_comma = s.rfind(',')
-        last_dot = s.rfind('.')
+        s = value.replace("\xa0", "").replace(" ", "")
+        last_comma = s.rfind(",")
+        last_dot = s.rfind(".")
         if last_comma > last_dot:
-            s = s.replace('.', '').replace(',', '.')
+            s = s.replace(".", "").replace(",", ".")
         elif last_dot > last_comma:
-            s = s.replace(',', '')
+            s = s.replace(",", "")
         return s
 
     @staticmethod
@@ -453,17 +474,17 @@ class PayPalParser(CsvStatementParser):
         if not samples:
             return None
         first = samples[0]
-        if '.' in first:
+        if "." in first:
             return "%d.%m.%Y"
-        if '-' in first:
+        if "-" in first:
             return "%Y-%m-%d"
-        if '/' not in first:
+        if "/" not in first:
             return None
 
         dmy_confirmed = False
         mdy_confirmed = False
         for s in samples:
-            parts = s.split('/')
+            parts = s.split("/")
             if len(parts) != 3:
                 continue
             try:
@@ -550,15 +571,22 @@ class PayPalParser(CsvStatementParser):
             # its own currency bucket, which would corrupt the EUR/USD/...
             # opening balance. For the first seen row, record start_date; only
             # set start_balance when the row matches the statement currency.
-            self.statement.start_date = datetime.strptime(line[date_idx], self.date_format)
-        if self.statement.start_balance is None and line[currency_idx] == self.statement.currency:
+            self.statement.start_date = datetime.strptime(
+                line[date_idx], self.date_format
+            )
+        if (
+            self.statement.start_balance is None
+            and line[currency_idx] == self.statement.currency
+        ):
             balance_str = self._normalize_amount(line[balance_idx])
             amount_str = self._normalize_amount(line[amount_idx])
             self.statement.start_balance = D(balance_str) - D(amount_str)
             logger.debug(
                 "Derived start_balance=%s from first %s row (balance=%s, net=%s)",
-                self.statement.start_balance, self.statement.currency,
-                balance_str, amount_str,
+                self.statement.start_balance,
+                self.statement.currency,
+                balance_str,
+                amount_str,
             )
 
         smt_line = StatementLine()
@@ -566,7 +594,10 @@ class PayPalParser(CsvStatementParser):
         smt_line.date = datetime.strptime(line[date_idx], self.date_format)
         smt_line.currency = Currency(line[currency_idx])
         smt_line.amount = D(self._normalize_amount(line[amount_idx]))
-        smt_line.fee = D(self._normalize_amount(line[fee_idx]))
+        # StatementLine has no declared `fee` attribute — this stores the
+        # parsed fee dynamically so the tests can assert on it; OFX rendering
+        # does not emit it.
+        smt_line.fee = D(self._normalize_amount(line[fee_idx]))  # type: ignore[attr-defined]
 
         # If this row is the statement-currency merchant-debit leg of a
         # PayPal 4-row conversion, _collapse_currency_conversions will have
@@ -619,6 +650,9 @@ class PayPalParser(CsvStatementParser):
 
         logger.debug(
             "Parsed row id=%s date=%s amount=%s trntype=%s",
-            smt_line.id, smt_line.date.date(), smt_line.amount, smt_line.trntype,
+            smt_line.id,
+            smt_line.date.date(),
+            smt_line.amount,
+            smt_line.trntype,
         )
         return smt_line
