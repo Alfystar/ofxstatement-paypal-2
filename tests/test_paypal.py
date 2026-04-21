@@ -115,6 +115,17 @@ def _parser(csv_text, date_format="%d/%m/%Y", account="ACC1", currency="EUR"):
     return PayPalParser(io.StringIO(csv_text), date_format, account, currency)
 
 
+def _parse_and_validate(parser):
+    # Statement.assert_valid() sums every line.amount regardless of currency.
+    # If the plugin leaves non-statement-currency rows in stmt.lines, that
+    # sum diverges from start/end_balance and the CLI rejects the OFX.
+    # Running it here pins the cross-currency invariant at unit-test time
+    # rather than at runtime.
+    stmt = parser.parse()
+    stmt.assert_valid()
+    return stmt
+
+
 class HeaderValidationTests(unittest.TestCase):
 
     def test_empty_file_raises(self):
@@ -140,7 +151,7 @@ class HeaderValidationTests(unittest.TestCase):
 
     def test_localized_header_accepted(self):
         parser = _parser(_csv(header=GERMAN_HEADER))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(len(stmt.lines), 0)
 
 
@@ -148,7 +159,7 @@ class ParseRecordTests(unittest.TestCase):
 
     def test_single_payment_parses(self):
         parser = _parser(_csv(_row()))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(len(stmt.lines), 1)
         line = stmt.lines[0]
         self.assertEqual(line.id, "TXN0000000000001")
@@ -160,12 +171,12 @@ class ParseRecordTests(unittest.TestCase):
 
     def test_negative_amount_is_payment(self):
         parser = _parser(_csv(_row(Net="-10,00")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].trntype, "PAYMENT")
 
     def test_positive_amount_is_directdep(self):
         parser = _parser(_csv(_row(Net="25,50", Gross="25,50", Balance="125,50")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].trntype, "DIRECTDEP")
 
     def test_bank_transaction_is_xfer(self):
@@ -179,39 +190,39 @@ class ParseRecordTests(unittest.TestCase):
                 )
             )
         )
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].trntype, "XFER")
 
     def test_comma_decimal_separator(self):
         parser = _parser(_csv(_row(Net="-1234,56", Fee="-1,23")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].amount, Decimal("-1234.56"))
         self.assertEqual(stmt.lines[0].fee, Decimal("-1.23"))
 
     def test_nbsp_stripped_from_amount(self):
         parser = _parser(_csv(_row(Net="-1\xa0234,56")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].amount, Decimal("-1234.56"))
 
     def test_european_dot_thousands_separator(self):
         parser = _parser(_csv(_row(Net="-1.090,00", Balance="-1.090,00")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].amount, Decimal("-1090.00"))
 
     def test_us_comma_thousands_separator(self):
         parser = _parser(_csv(_row(Net="-1,234.56", Balance="-1,234.56")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].amount, Decimal("-1234.56"))
 
     def test_amount_without_thousands_separator(self):
         parser = _parser(_csv(_row(Net="-1234,56")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].amount, Decimal("-1234.56"))
 
     def test_start_balance_derived_from_first_row(self):
         row = _row(Net="-10,00", Balance="90,00")
         parser = _parser(_csv(row))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.start_balance, Decimal("100.00"))
         self.assertEqual(stmt.start_date, datetime(2025, 1, 2))
 
@@ -230,7 +241,7 @@ class ParseRecordTests(unittest.TestCase):
             ),
         ]
         parser = _parser(_csv(*rows))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.start_balance, Decimal("100.00"))
         self.assertEqual(stmt.end_balance, Decimal("95.00"))
         self.assertEqual(stmt.end_date, datetime(2025, 1, 3))
@@ -245,7 +256,7 @@ class ParseRecordTests(unittest.TestCase):
                 )
             )
         )
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         memo = stmt.lines[0].memo
         # Name is in payee, not memo, to avoid Beschreibung/Buchungstext duplication.
         self.assertNotIn("Name:", memo)
@@ -262,7 +273,7 @@ class ParseRecordTests(unittest.TestCase):
                 )
             )
         )
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].payee, "Example Merchant")
 
     def test_payee_falls_back_to_description_when_name_empty(self):
@@ -274,7 +285,7 @@ class ParseRecordTests(unittest.TestCase):
                 )
             )
         )
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].payee, "Bankgutschrift auf PayPal-Konto")
 
     def test_description_not_duplicated_in_memo_when_used_as_payee(self):
@@ -286,18 +297,18 @@ class ParseRecordTests(unittest.TestCase):
                 )
             )
         )
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         # Description is in payee as the fallback; shouldn't also appear in memo.
         self.assertNotIn("Description:", stmt.lines[0].memo)
 
     def test_dot_date_format_via_config(self):
         parser = _parser(_csv(_row(Date="02.01.2025")), date_format="%d.%m.%Y")
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.lines[0].date, datetime(2025, 1, 2))
 
     def test_empty_statement_does_not_crash(self):
         parser = _parser(_csv())
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(len(stmt.lines), 0)
         self.assertIsNone(stmt.end_date)
 
@@ -309,13 +320,13 @@ class AutoDetectionTests(unittest.TestCase):
 
     def test_detects_dot_dmy_format(self):
         parser = self._auto_parser(_csv(_row(Date="02.01.2025")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(parser.date_format, "%d.%m.%Y")
         self.assertEqual(stmt.lines[0].date, datetime(2025, 1, 2))
 
     def test_detects_iso_format(self):
         parser = self._auto_parser(_csv(_row(Date="2025-01-02")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(parser.date_format, "%Y-%m-%d")
         self.assertEqual(stmt.lines[0].date, datetime(2025, 1, 2))
 
@@ -366,13 +377,13 @@ class AutoDetectionTests(unittest.TestCase):
             _csv(_row(Date="06/13/2025")),
             date_format="%m/%d/%Y",
         )
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(parser.date_format, "%m/%d/%Y")
         self.assertEqual(stmt.lines[0].date, datetime(2025, 6, 13))
 
     def test_detects_single_currency(self):
         parser = self._auto_parser(_csv(_row(Currency="USD")))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.currency, "USD")
 
     def test_detects_majority_currency_in_mixed_file(self):
@@ -382,7 +393,7 @@ class AutoDetectionTests(unittest.TestCase):
             _row(Currency="USD", **{"Transaction ID": "T3"}),
         ]
         parser = self._auto_parser(_csv(*rows))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.currency, "EUR")
 
     def test_missing_currency_raises(self):
@@ -393,17 +404,17 @@ class AutoDetectionTests(unittest.TestCase):
 
     def test_configured_currency_beats_autodetect(self):
         parser = self._auto_parser(_csv(_row(Currency="USD")), currency="GBP")
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.currency, "GBP")
 
     def test_default_account_id_when_not_configured(self):
         parser = self._auto_parser(_csv(_row()))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.account_id, DEFAULT_ACCOUNT_ID)
 
     def test_configured_account_beats_default(self):
         parser = self._auto_parser(_csv(_row()), account="MyPayPal")
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.account_id, "MyPayPal")
 
 
@@ -429,7 +440,7 @@ class ChronologicalSortTests(unittest.TestCase):
             **{"Transaction ID": "SECOND"},
         )
         parser = self._parser(_csv(latest, earliest))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual([sl.id for sl in stmt.lines], ["FIRST", "SECOND"])
 
     def test_start_balance_uses_chronologically_earliest_row(self):
@@ -449,7 +460,7 @@ class ChronologicalSortTests(unittest.TestCase):
             **{"Transaction ID": "SECOND"},
         )
         parser = self._parser(_csv(latest, earliest))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.start_balance, Decimal("100.00"))
         self.assertEqual(stmt.start_date, datetime(2025, 1, 2))
 
@@ -465,7 +476,7 @@ class ChronologicalSortTests(unittest.TestCase):
             **{"Transaction ID": "EARLIER"},
         )
         parser = self._parser(_csv(later_time, earlier_time))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual([sl.id for sl in stmt.lines], ["EARLIER", "LATER"])
 
     def test_already_sorted_rows_preserve_order(self):
@@ -475,7 +486,7 @@ class ChronologicalSortTests(unittest.TestCase):
             _row(Date="04/01/2025", **{"Transaction ID": "C"}),
         ]
         parser = self._parser(_csv(*rows))
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         self.assertEqual([sl.id for sl in stmt.lines], ["A", "B", "C"])
 
 
@@ -563,7 +574,7 @@ class CurrencyConversionTests(unittest.TestCase):
             **{"Transaction ID": "USD_ISOLATED"},
         )
         parser = _parser(_csv(eur_expense, usd_charge), currency="EUR")
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         # start_balance derived from the EUR row only: -5 - (-5) = 0
         self.assertEqual(stmt.start_balance, Decimal("0"))
         # end_balance = 0 + (-5 EUR); the USD -20 must NOT be included
@@ -572,19 +583,23 @@ class CurrencyConversionTests(unittest.TestCase):
     def test_foreign_conversion_pair_collapses(self):
         rows = self._conversion_rows()
         parser = _parser(_csv(*rows), currency="EUR")
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         ids = [sl.id for sl in stmt.lines]
-        # Anchor charge stays; zero-conversion is dropped; both EUR legs kept.
-        self.assertIn("ANCHOR_USD_CHARGE", ids)
+        # Anchor + zero-conversion are both dropped (they cancel in a
+        # foreign sub-balance and would corrupt the core's cross-currency
+        # amount sum). Only the EUR legs survive; the merchant-debit
+        # carries orig_currency so the foreign charge is still visible
+        # in the OFX via <ORIGCURRENCY>/<CURRATE>.
+        self.assertNotIn("ANCHOR_USD_CHARGE", ids)
         self.assertNotIn("USD_ZERO_CONV", ids)
         self.assertIn("EUR_BANK_CREDIT", ids)
         self.assertIn("EUR_MERCHANT_DEBIT", ids)
-        self.assertEqual(len(stmt.lines), 3)
+        self.assertEqual(len(stmt.lines), 2)
 
     def test_orig_currency_annotated_on_merchant_debit(self):
         rows = self._conversion_rows()
         parser = _parser(_csv(*rows), currency="EUR")
-        stmt = parser.parse()
+        stmt = _parse_and_validate(parser)
         merchant_debit = next(sl for sl in stmt.lines if sl.id == "EUR_MERCHANT_DEBIT")
         self.assertIsNotNone(merchant_debit.orig_currency)
         self.assertEqual(merchant_debit.orig_currency.symbol, "USD")
@@ -593,9 +608,86 @@ class CurrencyConversionTests(unittest.TestCase):
             merchant_debit.orig_currency.rate,
             Decimal("12.98") / Decimal("12.95"),
         )
-        # Other rows must not carry orig_currency
-        anchor = next(sl for sl in stmt.lines if sl.id == "ANCHOR_USD_CHARGE")
-        self.assertIsNone(anchor.orig_currency)
+        # The bank-credit leg (also EUR) must not carry orig_currency —
+        # only the merchant-debit is annotated.
+        bank_credit = next(sl for sl in stmt.lines if sl.id == "EUR_BANK_CREDIT")
+        self.assertIsNone(bank_credit.orig_currency)
+
+    def test_multiple_conversion_groups_pass_core_validation(self):
+        # Regression for a real 2025 PayPal export that validated at the
+        # EUR-only running total (the plugin's own check) but failed the
+        # core's cross-currency amount sum: surviving foreign-currency
+        # anchor rows from N>1 conversion groups aggregated into a non-
+        # zero "total" that the core compared against start==end==0.
+        #
+        # With two groups, the anchors sum to -25.93 USD. Pre-fix, that
+        # sum contaminated stmt.lines and raised ValidationError. This
+        # test pins that it no longer does.
+        def _group(anchor_id, bank_credit_id, debit_id, date):
+            return [
+                _row(
+                    Date=date,
+                    Time="10:00:00",
+                    Currency="USD",
+                    Gross="-12,95",
+                    Net="-12,95",
+                    Balance="-12,95",
+                    **{"Transaction ID": anchor_id, "Reference Txn ID": "B-EXT"},
+                ),
+                _row(
+                    Date=date,
+                    Time="10:00:01",
+                    Currency="USD",
+                    Gross="12,95",
+                    Net="12,95",
+                    Balance="0,00",
+                    **{
+                        "Transaction ID": f"ZERO_{anchor_id}",
+                        "Reference Txn ID": anchor_id,
+                        "Name": "",
+                    },
+                ),
+                _row(
+                    Date=date,
+                    Time="10:00:02",
+                    Currency="EUR",
+                    Gross="12,98",
+                    Net="12,98",
+                    Balance="12,98",
+                    **{
+                        "Transaction ID": bank_credit_id,
+                        "Reference Txn ID": anchor_id,
+                        "Name": "",
+                    },
+                ),
+                _row(
+                    Date=date,
+                    Time="10:00:03",
+                    Currency="EUR",
+                    Gross="-12,98",
+                    Net="-12,98",
+                    Balance="0,00",
+                    **{
+                        "Transaction ID": debit_id,
+                        "Reference Txn ID": anchor_id,
+                        "Name": "Foreign Merchant",
+                    },
+                ),
+            ]
+
+        rows = _group("ANCHOR_A", "BANK_A", "DEBIT_A", "02/01/2025") + _group(
+            "ANCHOR_B", "BANK_B", "DEBIT_B", "03/01/2025"
+        )
+        parser = _parser(_csv(*rows), currency="EUR")
+        stmt = _parse_and_validate(parser)
+        ids = [sl.id for sl in stmt.lines]
+        self.assertEqual(
+            ids,
+            ["BANK_A", "DEBIT_A", "BANK_B", "DEBIT_B"],
+            "anchors and zero-conversions from both groups must be dropped",
+        )
+        self.assertEqual(stmt.start_balance, Decimal("0"))
+        self.assertEqual(stmt.end_balance, Decimal("0"))
 
 
 if __name__ == "__main__":
