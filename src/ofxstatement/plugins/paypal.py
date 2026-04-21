@@ -107,6 +107,30 @@ class PayPalParser(CsvStatementParser):
         """
         self._setFileType()
         stmt = super(PayPalParser, self).parse()
+        # Core's Statement.assert_valid() sums every line.amount regardless
+        # of currency. Non-statement-currency lines (e.g. a standalone USD
+        # charge, or the foreign-currency anchor of a 4-row conversion)
+        # would contaminate that sum and be rejected by the CLI. The
+        # foreign amount, when relevant, is already preserved on the
+        # statement-currency merchant-debit leg via orig_currency.
+        if stmt.currency:
+            dropped = [
+                sl
+                for sl in stmt.lines
+                if not sl.currency or sl.currency.symbol != stmt.currency
+            ]
+            if dropped:
+                stmt.lines = [
+                    sl
+                    for sl in stmt.lines
+                    if sl.currency and sl.currency.symbol == stmt.currency
+                ]
+                logger.info(
+                    "Dropped %d non-%s line(s) from stmt.lines "
+                    "(would contaminate the core's cross-currency amount sum)",
+                    len(dropped),
+                    stmt.currency,
+                )
         if stmt.lines:
             # Sum only lines in the statement currency. Foreign-currency rows
             # (e.g. a USD charge on an EUR statement) carry their native
@@ -274,6 +298,11 @@ class PayPalParser(CsvStatementParser):
             Transaction ID with a ``Currency(symbol=<foreign>, rate=...)``.
             parse_record_csv attaches it so OFX renders
             <CURRENCY>EUR</CURRENCY><ORIGCURRENCY>USD</ORIGCURRENCY>.
+
+        Row 1 (the foreign-currency anchor) is left in the raw rows; it
+        gets dropped at the stmt.lines layer by parse(), alongside any
+        other non-statement-currency rows (e.g. isolated foreign charges
+        not part of a 4-row group).
         """
         if not rows or not self.statement.currency:
             return
