@@ -35,6 +35,7 @@ paypal = "ofxstatement.plugins.paypal:PayPalPlugin"
 [project.optional-dependencies]
 dev = [
   "pytest",
+  "pytest-cov",
   "mypy",
   "black",
   "ruff",
@@ -47,6 +48,11 @@ namespaces = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = [
+    "--cov=src/ofxstatement/plugins",
+    "--cov-report=term-missing",
+    "--no-cov-on-fail",
+]
 
 [tool.mypy]
 strict = false
