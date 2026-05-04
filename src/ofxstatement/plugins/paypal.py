@@ -392,16 +392,22 @@ class PayPalParser(CsvStatementParser):
         Values supplied via config.ini are honoured as overrides: detection
         only runs when the corresponding attribute is still unset.
 
-        Currency is detected first (regardless of whether the statement
-        currency is overridden) because it also serves as a tiebreaker for
-        ambiguous slash date formats — a USD-dominated file is much more
-        likely to be MDY than DMY.
+        Currency detection drives two things:
+          - the date-format tiebreaker (USD-heavy files lean MDY),
+          - the choice of statement.currency when not overridden.
+        OFX is single-currency per statement, but PayPal accounts can hold
+        balances in several currencies. To avoid silently dropping data,
+        we refuse to guess when more than one currency is present and the
+        user hasn't picked one via config.ini.
         """
         if not rows:
             return
 
         currency_idx = self.valid_header.index("Currency")
-        file_currency = self._detect_currency(rows, currency_idx)
+        currency_counts = self._currency_counts(rows, currency_idx)
+        file_currency = (
+            currency_counts.most_common(1)[0][0] if currency_counts else None
+        )
 
         if self.date_format is None:
             date_idx = self.valid_header.index("Date")
@@ -417,15 +423,39 @@ class PayPalParser(CsvStatementParser):
             self.date_format = inferred
             logger.debug("Auto-detected dataformat='%s'", inferred)
 
-        if not self.statement.currency:
-            if file_currency is None:
-                raise ParseError(
-                    0,
-                    "Could not auto-detect currency from CSV contents. "
-                    "Set 'default_currency' in config.ini (e.g. 'EUR').",
+        if self.statement.currency:
+            if currency_counts and self.statement.currency not in currency_counts:
+                logger.warning(
+                    "default_currency=%s is not present in this CSV (currencies "
+                    "found: %s). The output OFX will be empty.",
+                    self.statement.currency,
+                    self._format_currency_counts(currency_counts),
                 )
-            self.statement.currency = file_currency
-            logger.debug("Auto-detected currency='%s'", file_currency)
+            return
+
+        if not currency_counts:
+            raise ParseError(
+                0,
+                "Could not auto-detect currency from CSV contents. "
+                "Set 'default_currency' in config.ini (e.g. 'EUR').",
+            )
+        if len(currency_counts) > 1:
+            raise ParseError(
+                0,
+                "PayPal CSV contains multiple currencies "
+                f"({self._format_currency_counts(currency_counts)}). "
+                "OFX is single-currency per statement, so set "
+                "'default_currency' in config.ini to pick one and rerun the "
+                "converter once per currency you want to export.",
+            )
+        self.statement.currency = file_currency
+        logger.debug("Auto-detected currency='%s'", file_currency)
+
+    @staticmethod
+    def _format_currency_counts(counts: "Counter[str]") -> str:
+        return ", ".join(
+            f"{ccy}={n}" for ccy, n in sorted(counts.items(), key=lambda kv: -kv[1])
+        )
 
     def _sort_rows_chronologically(self, rows: List[List[str]]) -> None:
         """Sort rows in place by (Date, Time) ascending.
@@ -535,23 +565,18 @@ class PayPalParser(CsvStatementParser):
         return "%d/%m/%Y"
 
     @staticmethod
-    def _detect_currency(rows: List[List[str]], currency_idx: int) -> Optional[str]:
-        """Infer statement-level currency from sampled Currency cells.
+    def _currency_counts(rows: List[List[str]], currency_idx: int) -> "Counter[str]":
+        """Count populated Currency-column values across the file.
 
-        A PayPal account can hold multiple currencies (balances per
-        currency), but OFX wants a single statement-level currency — so
-        we pick the most frequent value across the file. The per-line
-        StatementLine.currency still carries the exact code for each
-        transaction, so mixed-currency files remain lossless.
+        Returned as a Counter so callers can both pick the dominant
+        currency (date-format tiebreaker) and surface the full breakdown
+        when the user needs to choose one (multi-currency files).
         """
-        samples = [
+        return Counter(
             r[currency_idx]
             for r in rows
             if r and currency_idx < len(r) and r[currency_idx]
-        ]
-        if not samples:
-            return None
-        return Counter(samples).most_common(1)[0][0]
+        )
 
     def fix_amount(self, value: str) -> str:
         dbt_re = r"(.*)(Dr)$"

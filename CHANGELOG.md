@@ -1,5 +1,34 @@
 # Changelog
 
+## [3.3.0] - 2026-05-04
+
+### Changed
+- **Multi-currency CSVs without `default_currency` now error.** Previously the
+  parser silently picked the most frequent currency and dropped the rest,
+  masking real account activity (a PayPal account can hold balances in
+  several currencies). Single-currency CSVs are unchanged. To export every
+  currency from a mixed file, define one config section per currency and
+  run the converter once per section — see README *"Multi-currency &
+  foreign-currency purchases"* for the migration recipe.
+- When `default_currency` is set explicitly, it now acts as an explicit
+  filter. If the chosen currency is not present in the file, the parser
+  warns (rather than silently producing an empty OFX with no signal).
+
+### Fixed
+- Mixed-currency files no longer fail core's `Statement.assert_valid()`
+  cross-currency sum. Foreign-currency rows (e.g. an isolated USD charge,
+  or the foreign-currency anchor of a 4-row conversion group) are filtered
+  out of `stmt.lines` before the sum runs; the foreign amount remains
+  preserved on the statement-currency merchant-debit leg via
+  `<ORIGCURRENCY>`.
+
+### Developer tooling
+- Test suite now invokes `Statement.assert_valid()` after every parse via
+  a `_parse_and_validate` helper, pinning the cross-currency invariant at
+  unit-test time rather than at runtime.
+- `pyproject.toml` now configures `pytest-cov` (term-missing report,
+  `--no-cov-on-fail`) so coverage shows on every test run.
+
 ## [3.2.0] - 2026-04-12
 
 ### Fixed

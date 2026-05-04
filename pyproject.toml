@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ofxstatement-paypal-2"
-version = "3.2.0"
+version = "3.3.0"
 authors = [
   { name = "Alfystar", email = "alfystar1701@gmail.com" },
 ]

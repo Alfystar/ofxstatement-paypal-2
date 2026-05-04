@@ -386,15 +386,45 @@ class AutoDetectionTests(unittest.TestCase):
         stmt = _parse_and_validate(parser)
         self.assertEqual(stmt.currency, "USD")
 
-    def test_detects_majority_currency_in_mixed_file(self):
+    def test_multiple_currencies_without_filter_raises(self):
         rows = [
             _row(Currency="EUR", **{"Transaction ID": "T1"}),
             _row(Currency="EUR", **{"Transaction ID": "T2"}),
             _row(Currency="USD", **{"Transaction ID": "T3"}),
         ]
         parser = self._auto_parser(_csv(*rows))
+        with self.assertRaises(ParseError) as ctx:
+            parser.parse()
+        msg = str(ctx.exception)
+        self.assertIn("multiple currencies", msg)
+        self.assertIn("EUR=2", msg)
+        self.assertIn("USD=1", msg)
+        self.assertIn("default_currency", msg)
+
+    def test_filter_keeps_only_target_currency(self):
+        rows = [
+            _row(Currency="EUR", **{"Transaction ID": "T1"}),
+            _row(Currency="EUR", **{"Transaction ID": "T2"}),
+            _row(Currency="USD", **{"Transaction ID": "T3"}),
+        ]
+        parser = self._auto_parser(_csv(*rows), currency="USD")
         stmt = _parse_and_validate(parser)
-        self.assertEqual(stmt.currency, "EUR")
+        self.assertEqual(stmt.currency, "USD")
+        self.assertEqual([line.id for line in stmt.lines], ["T3"])
+
+    def test_filter_currency_not_in_file_warns(self):
+        rows = [
+            _row(Currency="EUR", **{"Transaction ID": "T1"}),
+            _row(Currency="USD", **{"Transaction ID": "T2"}),
+        ]
+        parser = self._auto_parser(_csv(*rows), currency="GBP")
+        with self.assertLogs(_paypal.__name__, level="WARNING") as cm:
+            stmt = _parse_and_validate(parser)
+        self.assertEqual(len(stmt.lines), 0)
+        self.assertTrue(
+            any("default_currency=GBP is not present" in msg for msg in cm.output),
+            cm.output,
+        )
 
     def test_missing_currency_raises(self):
         parser = self._auto_parser(_csv(_row(Currency="")))

@@ -51,7 +51,7 @@ When a setting is not provided, the plugin infers it as follows:
 | Setting | Inferred from | Fallback |
 | --- | --- | --- |
 | `dataformat` | Date column: `.` → `%d.%m.%Y`, `-` → `%Y-%m-%d`, `/` → DMY/MDY decided by any day > 12 in the file; if ambiguous, USD-majority files pick MDY, everything else picks DMY | Raises if the separator is unrecognised |
-| `default_currency` | Most frequent value in the Currency column | Raises if no Currency values are present |
+| `default_currency` | The CSV's only currency, when there is just one | Raises if no Currency values are present, or if the CSV holds more than one currency (in that case you must pick one explicitly — see below) |
 | `default_account` | — | `"PayPal"` |
 | `charset` | — | `UTF-8` |
 
@@ -61,10 +61,40 @@ processing, so exports that arrive newest-first are handled correctly.
 
 #### Multi-currency & foreign-currency purchases
 
-A PayPal account can hold multiple currency balances, and a purchase in a
-foreign currency is exported as a four-row conversion group (foreign
-charge + foreign zero-conversion + two statement-currency legs). The
-parser:
+A PayPal account can hold multiple currency balances, and the CSV mixes
+all of them into one file. OFX is single-currency per statement, so:
+
+- If the CSV holds **only one** currency the parser auto-detects it and
+  emits one OFX as usual.
+- If the CSV holds **more than one** currency (e.g. EUR + GBP + USD)
+  and `default_currency` is **not** set, parsing aborts with a per-
+  currency line-count breakdown and asks you to pick one. To export
+  every currency, define one config section per currency and run the
+  converter once per section:
+
+  ```ini
+  [paypal-eur]
+  plugin = paypal
+  default_currency = EUR
+
+  [paypal-gbp]
+  plugin = paypal
+  default_currency = GBP
+
+  [paypal-usd]
+  plugin = paypal
+  default_currency = USD
+  ```
+
+  ```bash
+  $ ofxstatement convert -t paypal-eur input.csv output.eur.ofx
+  $ ofxstatement convert -t paypal-gbp input.csv output.gbp.ofx
+  $ ofxstatement convert -t paypal-usd input.csv output.usd.ofx
+  ```
+
+A purchase in a foreign currency is exported by PayPal as a four-row
+conversion group (foreign charge + foreign zero-conversion + two
+statement-currency legs). The parser:
 
 - Computes the running balance only from rows in the statement currency
   (chosen via auto-detect or `default_currency`), so foreign-currency
