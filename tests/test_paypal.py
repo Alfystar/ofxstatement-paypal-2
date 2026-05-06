@@ -157,6 +157,15 @@ class HeaderValidationTests(unittest.TestCase):
 
 class ParseRecordTests(unittest.TestCase):
 
+    def test_parse_logs_plugin_version_first(self):
+        # First INFO line lets the user verify which checkout / install is
+        # actually running without resorting to `pip show`.
+        parser = _parser(_csv(_row()))
+        with self.assertLogs(_paypal.__name__, level="INFO") as cm:
+            parser.parse()
+        first = cm.records[0]
+        self.assertIn("ofxstatement-paypal-2 version", first.getMessage())
+
     def test_single_payment_parses(self):
         parser = _parser(_csv(_row()))
         stmt = _parse_and_validate(parser)

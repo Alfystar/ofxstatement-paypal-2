@@ -4,6 +4,7 @@ import re
 from collections import Counter
 from datetime import datetime
 from decimal import Decimal as D
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 from typing import Dict, Iterator, List, Optional, Set, TextIO, Tuple
 
 from ofxstatement.exceptions import ParseError
@@ -12,6 +13,22 @@ from ofxstatement.plugin import Plugin
 from ofxstatement.statement import Currency, Statement, StatementLine
 
 logger = logging.getLogger(__name__)
+
+
+def _plugin_version() -> str:
+    """Installed package version, or ``"unknown"`` when unavailable.
+
+    Pulled at runtime rather than baked in at import so editable
+    installs see whatever pyproject.toml currently declares without a
+    reinstall. Falls back to ``"unknown"`` when the distribution is
+    absent (e.g. running tests directly out of a source tree without
+    ``pip install -e``).
+    """
+    try:
+        return _pkg_version("ofxstatement-paypal-2")
+    except PackageNotFoundError:
+        return "unknown"
+
 
 # Fallback account id when config.ini sets no 'default_account'. The OFX
 # account identifier is a label for downstream consumers, not a PayPal account
@@ -105,6 +122,11 @@ class PayPalParser(CsvStatementParser):
         super() implementation will call split_records and parse_record to
         process the file.
         """
+        # Logged first so a user reading the convert output can confirm
+        # which plugin version actually ran, without having to grep
+        # `pip show`. Especially useful when multiple checkouts or a
+        # mix of pip / pipx / system installs are in play.
+        logger.info("ofxstatement-paypal-2 version %s", _plugin_version())
         self._setFileType()
         stmt = super(PayPalParser, self).parse()
         # Core's Statement.assert_valid() sums every line.amount regardless
