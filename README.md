@@ -177,15 +177,64 @@ After that, reload your terminal (close and then reopen) and the usage change to
 
 ## Development
 
-The plugin uses a PEP 517/621 `pyproject.toml` layout. To run the test suite
-from a source checkout:
+The plugin uses a PEP 517/621 `pyproject.toml` layout. `pyproject.toml` is
+authoritative for packaging and the `[project.optional-dependencies].dev`
+extra is what CI installs. For local hacking you can pick whichever
+workflow you prefer — they all reach the same dev environment:
+
+### With Pipenv (recommended for local development)
+
+A `Pipfile` and `Pipfile.lock` are checked in so contributors can spin up
+a reproducible environment with one command. The `Pipfile` mirrors
+`pyproject.toml`'s runtime + `[dev]` dependencies.
+
+```bash
+# Install pipenv if you don't have it (system, user, or pipx — your call)
+$ pip install --user pipenv
+
+# Install runtime + dev deps from Pipfile.lock into a fresh virtualenv
+$ pipenv install --dev
+
+# Drop into the virtualenv shell
+$ pipenv shell
+
+# …or run a single command without entering the shell:
+$ pipenv run pytest
+$ pipenv run mypy src tests
+$ pipenv run black --check src tests
+$ pipenv run ruff check src tests
+```
+
+The plugin itself is installed in editable mode (`{editable = true,
+path = "."}` in `Pipfile`), so source edits are picked up immediately
+without reinstalling.
+
+To regenerate the lock after a `Pipfile` change:
+
+```bash
+$ pipenv lock
+```
+
+### With plain pip + venv
+
+```bash
+$ python -m venv .venv
+$ .venv/bin/pip install -e ".[dev]"
+$ .venv/bin/pytest
+```
+
+This is the path CI uses. Convenient if you don't want to add `pipenv`
+to your toolchain.
+
+### Running the tests directly
+
+The unit tests are pure stdlib `unittest` and load the plugin module
+straight from `src/` via `importlib`, so they also run without
+installing the package at all:
 
 ```bash
 $ python3 -m unittest discover -s tests
 ```
-
-Tests are pure stdlib `unittest` and load the plugin module directly from
-`src/`, so they run without installing the package.
 
 ### Anonymizing a PayPal CSV
 

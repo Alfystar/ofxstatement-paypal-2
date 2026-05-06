@@ -1,0 +1,24 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+# Runtime dependencies — kept in sync with pyproject.toml [project] dependencies.
+# pyproject.toml stays authoritative for packaging / distribution; the Pipfile
+# only drives the local development environment.
+ofxstatement = ">=0.7.2"
+ofxstatement-paypal-2 = {editable = true, path = "."}
+
+[dev-packages]
+# Mirrors pyproject.toml [project.optional-dependencies].dev. When you add or
+# remove a dev tool, update both files (pyproject.toml is what `pip install -e
+# '.[dev]'` and CI consume).
+pytest = "*"
+pytest-cov = "*"
+mypy = "*"
+black = "*"
+ruff = "*"
+
+[requires]
+python_version = "3"

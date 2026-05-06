@@ -60,3 +60,5 @@ target/
 /debug/
 /workdir/
 samples/
+# Pipenv local virtualenv (created with PIPENV_VENV_IN_PROJECT=1)
+.venv/
