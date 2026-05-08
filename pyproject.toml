@@ -30,10 +30,11 @@ dependencies = [
 Homepage = "https://github.com/Alfystar/ofxstatement-paypal.git"
 
 [project.entry-points."ofxstatement"]
-paypal = "ofxstatement.plugins.paypal:PayPalPlugin"
+paypal-convert = "ofxstatement.plugins.paypal:PayPalPlugin"
 
 [project.optional-dependencies]
 dev = [
+  "build",
   "pytest",
   "pytest-cov",
   "mypy",

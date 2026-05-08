@@ -62,3 +62,7 @@ target/
 samples/
 # Pipenv local virtualenv (created with PIPENV_VENV_IN_PROJECT=1)
 .venv/
+
+# Pipenv lockfile is kept local and not versioned in this repository
+Pipfile.lock
+

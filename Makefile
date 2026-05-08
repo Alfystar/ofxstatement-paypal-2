@@ -19,3 +19,8 @@ mypy:
 .PHONY: ruff
 ruff:
 	ruff check src tests
+
+.PHONY: package
+package:
+	python3 -m build --sdist --wheel
+

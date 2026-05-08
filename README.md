@@ -38,11 +38,13 @@ conversion profile a convenient alias for the CLI.
 With no config.ini at all, you can invoke the plugin by its registered name:
 
 ```bash
-$ ofxstatement convert -t paypal input.csv output.ofx
+$ ofxstatement convert -t paypal-convert input.csv output.ofx
 ```
 
-ofxstatement falls back to looking up plugins by name when `-t` doesn't match
-a config section.
+This direct plugin lookup only happens when no config file is loaded. If you
+already have a personal `config.ini`, `-t` is interpreted as a section name in
+that file, so the usual setup is to keep a section such as
+`[paypal-convert]` with `plugin = paypal-convert`.
 
 #### Auto-detection behaviour
 
@@ -74,15 +76,15 @@ all of them into one file. OFX is single-currency per statement, so:
 
   ```ini
   [paypal-eur]
-  plugin = paypal
+  plugin = paypal-convert
   default_currency = EUR
 
   [paypal-gbp]
-  plugin = paypal
+  plugin = paypal-convert
   default_currency = GBP
 
   [paypal-usd]
-  plugin = paypal
+  plugin = paypal-convert
   default_currency = USD
   ```
 
@@ -118,7 +120,7 @@ and add a section like:
 
 ```ini
 [Conf-Name]
-plugin = paypal
+plugin = paypal-convert
 encoding = utf-8
 dataformat = %%d/%%m/%%Y
 default_currency = EUR
@@ -137,6 +139,9 @@ default_account = Paypal Personal
 
 > Omit any field you're happy to let the plugin infer. You can define multiple
 > sections with different names to keep several profiles side by side.
+>
+> Existing configurations that already say `plugin = paypal-convert` keep
+> working unchanged after upgrading.
 
 ## Usage
 
@@ -152,10 +157,10 @@ $ ofxstatement convert -t <Conf-Name> input.csv output.ofx
 
 ### Add Alias
 To simplify the use of the plugin, we strongly recommend adding an alias to your system (if in a Linux environment or on an emulated terminal) by adding the alias of this command to your *.bash_aliases*:
-> **Note**: this alias use for confuguration name `paypal`, if you use another name, change it in the alias
+> **Note**: this alias uses configuration name `paypal-convert`; if you use another name, change it in the alias.
 
 ```bash
-$ printf '\n# Paypal CSV convert to OFX format\nalias ofxPaypal="ofxstatement convert -t paypal"\n' >> ~/.bash_aliases
+$ printf '\n# Paypal CSV convert to OFX format\nalias ofxPaypal="ofxstatement convert -t paypal-convert"\n' >> ~/.bash_aliases
 ```
 After that, reload your terminal (close and then reopen) and the usage change to:
 ```bash
@@ -184,15 +189,16 @@ workflow you prefer — they all reach the same dev environment:
 
 ### With Pipenv (recommended for local development)
 
-A `Pipfile` and `Pipfile.lock` are checked in so contributors can spin up
-a reproducible environment with one command. The `Pipfile` mirrors
-`pyproject.toml`'s runtime + `[dev]` dependencies.
+A `Pipfile` is checked in so contributors can spin up a local development
+environment with one command. It mirrors `pyproject.toml`'s runtime
+dependencies plus the `dev` extra, including the `build` tool used to create
+source distributions and wheels.
 
 ```bash
 # Install pipenv if you don't have it (system, user, or pipx — your call)
 $ pip install --user pipenv
 
-# Install runtime + dev deps from Pipfile.lock into a fresh virtualenv
+# Install runtime + dev deps into a fresh virtualenv
 $ pipenv install --dev
 
 # Drop into the virtualenv shell
@@ -203,17 +209,22 @@ $ pipenv run pytest
 $ pipenv run mypy src tests
 $ pipenv run black --check src tests
 $ pipenv run ruff check src tests
+$ pipenv run python -m build --sdist --wheel
 ```
 
 The plugin itself is installed in editable mode (`{editable = true,
 path = "."}` in `Pipfile`), so source edits are picked up immediately
 without reinstalling.
 
-To regenerate the lock after a `Pipfile` change:
+If you want a local lockfile for your machine, regenerate it after a `Pipfile`
+change with:
 
 ```bash
 $ pipenv lock
 ```
+
+`Pipfile.lock` is intentionally gitignored in this repository, so contributors
+can refresh it locally without creating noisy cross-platform diffs.
 
 ### With plain pip + venv
 
@@ -221,6 +232,7 @@ $ pipenv lock
 $ python -m venv .venv
 $ .venv/bin/pip install -e ".[dev]"
 $ .venv/bin/pytest
+$ .venv/bin/python -m build --sdist --wheel
 ```
 
 This is the path CI uses. Convenient if you don't want to add `pipenv`

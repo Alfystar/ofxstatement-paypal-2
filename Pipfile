@@ -14,6 +14,7 @@ ofxstatement-paypal-2 = {editable = true, path = "."}
 # Mirrors pyproject.toml [project.optional-dependencies].dev. When you add or
 # remove a dev tool, update both files (pyproject.toml is what `pip install -e
 # '.[dev]'` and CI consume).
+build = "*"
 pytest = "*"
 pytest-cov = "*"
 mypy = "*"
@@ -21,4 +22,4 @@ black = "*"
 ruff = "*"
 
 [requires]
-python_version = "3"
+python_version = "3.9"
