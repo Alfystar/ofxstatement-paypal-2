@@ -1,125 +1,170 @@
 # ofxstatement-paypal
 
-### Paypal plugin for ofxstatement 
+PayPal CSV → OFX converter plugin for [`ofxstatement`](https://github.com/kedder/ofxstatement).
 
-This project provides a custom plugin for [ofxstatement](https://github.com/kedder/ofxstatement) for Paypal. It is based
-on the work done by gerasiov (https://github.com/gerasiov/ofxstatement-paypal/).
+This repository is a maintained fork of the original project, created so the
+plugin can continue evolving and staying compatible with recent PayPal exports.
 
+## 1. What this project is for
 
-`ofxstatement_*` is a tool to convert proprietary bank statement to OFX format, suitable for importing to GnuCash / Odoo /Tryton. Plugin for ofxstatement parses a particular proprietary bank statement format and produces common data structure, that is then formatted into an OFX file.
+Use this plugin if you:
 
-Users of ofxstatement have developed several plugins for their banks. They are listed on main [`ofxstatement`](https://github.com/kedder/ofxstatement) site. If your bank is missing, you can develop your own plugin.
+- export your account activity from PayPal as CSV,
+- want to import it into software that understands OFX,
+- already use tools such as GnuCash, HomeBank, Odoo, Tryton, or any other
+  application that accepts OFX bank statements.
 
-> This repository is a fork of the original project, afrter the original author did not respond to the pull request, we decided to create a new repository to maintain the project.
+In short: this plugin reads a PayPal CSV export, parses the transactions, and
+produces an OFX statement that downstream finance tools can import.
 
-## Installation
+<details>
+<summary><strong>More details: audience, scope, and supported behavior</strong></summary>
 
-### From PyPI repositories
+### Who this is aimed at
+
+This project is primarily for end users who want to move PayPal transactions
+into personal finance or accounting software, and for maintainers who want a
+reliable, scriptable CSV → OFX conversion flow.
+
+### What it does
+
+- plugs into `ofxstatement`, the generic bank-statement conversion tool,
+- parses PayPal “Bank statements” CSV exports,
+- infers the date format when possible,
+- infers the statement currency when the CSV contains exactly one currency,
+- sorts rows chronologically before processing,
+- handles PayPal currency-conversion groups so foreign-currency purchases do
+  not break OFX balances.
+
+### What it does not do
+
+- it does not download statements from PayPal for you,
+- it does not replace `ofxstatement`; it extends it,
+- it does not produce one multi-currency OFX file, because OFX statements are
+  single-currency by design.
+
+### Project background
+
+The original project was based on earlier work by gerasiov:
+<https://github.com/gerasiov/ofxstatement-paypal/>.
+
+</details>
+
+## 2. Install and configure it minimally
+
+For most users, install the package and run it with no manual configuration:
+
+```bash
+pip3 install ofxstatement-paypal-2
+ofxstatement convert -t paypal-convert input.csv output.ofx
 ```
+
+If you already use an `ofxstatement` config file, create a section that points
+to this plugin:
+
+```ini
+[paypal-convert]
+plugin = paypal-convert
+```
+
+Then use that section name with `-t`.
+
+<details>
+<summary><strong>More details: installation, configuration, auto-detection, and multi-currency exports</strong></summary>
+
+### Install from PyPI
+
+```bash
 pip3 install ofxstatement-paypal-2
 ```
 
-### From source
-```
-git clone https://github.com/Alfystar/ofxstatement-paypal-2.git
-cd ofxstatement-paypal-2
-pip install build
-python3 -m build --sdist --wheel
-pip install dist/ofxstatement_paypal_2-<version>.tar.gz # replace <version> with the version number
-```
-
-### Configuration
-
-**Configuration is optional.** The plugin inspects the CSV contents and infers
-every setting it needs (date format, currency, account label). You only need a
-config entry if you want to override one of the inferred values or give your
-conversion profile a convenient alias for the CLI.
-
-With no config.ini at all, you can invoke the plugin by its registered name:
+### Install from source
 
 ```bash
-$ ofxstatement convert -t paypal-convert input.csv output.ofx
+git clone https://github.com/Alfystar/ofxstatement-paypal-2.git
+cd ofxstatement-paypal-2
+python3 -m pip install --upgrade build
+python3 -m build --sdist --wheel
+python3 -m pip install dist/ofxstatement_paypal_2-<version>.tar.gz
 ```
 
-This direct plugin lookup only happens when no config file is loaded. If you
-already have a personal `config.ini`, `-t` is interpreted as a section name in
-that file, so the usual setup is to keep a section such as
-`[paypal-convert]` with `plugin = paypal-convert`.
+Replace `<version>` with the version you just built.
 
-#### Auto-detection behaviour
+### When config is optional
 
-When a setting is not provided, the plugin infers it as follows:
+If no `config.ini` is loaded, you can call the plugin directly by its
+registered name:
+
+```bash
+ofxstatement convert -t paypal-convert input.csv output.ofx
+```
+
+If a personal `ofxstatement` config file exists, `-t` is interpreted as a
+section name in that file, so the most stable setup is a section such as:
+
+```ini
+[paypal-convert]
+plugin = paypal-convert
+```
+
+### What the plugin auto-detects
+
+When you omit settings, the plugin tries to infer them from the CSV:
 
 | Setting | Inferred from | Fallback |
 | --- | --- | --- |
-| `dataformat` | Date column: `.` → `%d.%m.%Y`, `-` → `%Y-%m-%d`, `/` → DMY/MDY decided by any day > 12 in the file; if ambiguous, USD-majority files pick MDY, everything else picks DMY | Raises if the separator is unrecognised |
-| `default_currency` | The CSV's only currency, when there is just one | Raises if no Currency values are present, or if the CSV holds more than one currency (in that case you must pick one explicitly — see below) |
+| `dataformat` | Date column: `.` → `%d.%m.%Y`, `-` → `%Y-%m-%d`, `/` → DMY/MDY decided by the file contents | Raises if the separator is not recognized |
+| `default_currency` | The CSV's only currency, when there is just one | Raises if there are zero currencies or more than one |
 | `default_account` | — | `"PayPal"` |
 | `charset` | — | `UTF-8` |
 
-The inferred values are logged at `INFO` level so you can verify them in the
-output. Rows are also sorted chronologically (by Date, then Time) before
-processing, so exports that arrive newest-first are handled correctly.
+The inferred values are logged at `INFO` level so you can check what the parser
+decided.
 
-#### Multi-currency & foreign-currency purchases
+### Multi-currency exports
 
-A PayPal account can hold multiple currency balances, and the CSV mixes
-all of them into one file. OFX is single-currency per statement, so:
+PayPal mixes all balances into one CSV, but OFX is single-currency. That means:
 
-- If the CSV holds **only one** currency the parser auto-detects it and
-  emits one OFX as usual.
-- If the CSV holds **more than one** currency (e.g. EUR + GBP + USD)
-  and `default_currency` is **not** set, parsing aborts with a per-
-  currency line-count breakdown and asks you to pick one. To export
-  every currency, define one config section per currency and run the
-  converter once per section:
+- if the CSV contains only one currency, the plugin exports it directly;
+- if the CSV contains multiple currencies and `default_currency` is not set,
+  parsing stops and asks you to choose one.
 
-  ```ini
-  [paypal-eur]
-  plugin = paypal-convert
-  default_currency = EUR
-
-  [paypal-gbp]
-  plugin = paypal-convert
-  default_currency = GBP
-
-  [paypal-usd]
-  plugin = paypal-convert
-  default_currency = USD
-  ```
-
-  ```bash
-  $ ofxstatement convert -t paypal-eur input.csv output.eur.ofx
-  $ ofxstatement convert -t paypal-gbp input.csv output.gbp.ofx
-  $ ofxstatement convert -t paypal-usd input.csv output.usd.ofx
-  ```
-
-A purchase in a foreign currency is exported by PayPal as a four-row
-conversion group (foreign charge + foreign zero-conversion + two
-statement-currency legs). The parser:
-
-- Computes the running balance only from rows in the statement currency
-  (chosen via auto-detect or `default_currency`), so foreign-currency
-  rows can't corrupt the total.
-- Collapses each conversion group: drops the redundant foreign
-  zero-conversion row and annotates the statement-currency leg with
-  `<ORIGCURRENCY>` carrying the foreign symbol and exchange rate. OFX
-  consumers (GnuCash, HomeBank, …) then show the booked amount together
-  with the original, e.g. `−12.98 EUR (originally −12.95 USD)`.
-
-#### Overriding via config.ini
-
-To override any inferred value — or to define a named profile for the CLI —
-run:
-
-```bash
-$ ofxstatement edit-config
-```
-
-and add a section like:
+To export each currency separately, define one config section per currency:
 
 ```ini
-[Conf-Name]
+[paypal-convert-eur]
+plugin = paypal-convert
+default_currency = EUR
+
+[paypal-convert-gbp]
+plugin = paypal-convert
+default_currency = GBP
+
+[paypal-convert-usd]
+plugin = paypal-convert
+default_currency = USD
+```
+
+Then run the conversion once per section:
+
+```bash
+ofxstatement convert -t paypal-convert-eur input.csv output.eur.ofx
+ofxstatement convert -t paypal-convert-gbp input.csv output.gbp.ofx
+ofxstatement convert -t paypal-convert-usd input.csv output.usd.ofx
+```
+
+### Overriding inferred settings
+
+Run:
+
+```bash
+ofxstatement edit-config
+```
+
+Then add a section like:
+
+```ini
+[paypal-convert-custom]
 plugin = paypal-convert
 encoding = utf-8
 dataformat = %%d/%%m/%%Y
@@ -127,152 +172,133 @@ default_currency = EUR
 default_account = Paypal Personal
 ```
 
-- `Conf-Name`: any identifier; used with `ofxstatement convert -t <Conf-Name> input.csv output.ofx`.
-- `dataformat`: strptime format matching your PayPal CSV's Date column. Common values:
-  - `%%d/%%m/%%Y` — Europe (DMY with slashes)
-  - `%%d.%%m.%%Y` — Germany / Italy / etc. (DMY with dots)
-  - `%%m/%%d/%%Y` — USA (MDY with slashes)
-  - `%%Y-%%m-%%d` — ISO
-  - (The `%%` double-percent escape is required by the INI parser; it becomes a single `%` when read.)
-- `default_currency`: three-letter ISO code (`EUR`, `USD`, `GBP`, …).
-- `default_account`: shown in the OFX output; helps tools like [HomeBank](http://homebank.free.fr/en/index.php) route imports to the right account.
+Useful fields:
 
-> Omit any field you're happy to let the plugin infer. You can define multiple
-> sections with different names to keep several profiles side by side.
->
-> Existing configurations that already say `plugin = paypal-convert` keep
-> working unchanged after upgrading.
+- `dataformat`: the `strptime` format matching your CSV date column,
+- `default_currency`: target statement currency (`EUR`, `USD`, `GBP`, ...),
+- `default_account`: account label written into the OFX output.
 
-## Usage
+Existing configurations that already say `plugin = paypal-convert` keep working
+unchanged after upgrade.
 
-From Paypal Web interface, download a CSV of  `Bank statements` with the personalized report period you wish. (PayPal Login :arrow_right: History  :arrow_right: Download :arrow_right: customized)
+</details>
+
+## 3. Use it with the minimal workflow
+
+1. In PayPal, download a CSV from **History → Download → customized → Bank statements**.
+2. Open a terminal in the folder that contains the CSV.
+3. Convert it:
+
+```bash
+ofxstatement convert -t paypal-convert input.csv output.ofx
+```
+
+If you use a named config section instead, replace `paypal-convert` with your
+section name.
+
+<details>
+<summary><strong>More details: where to get the CSV, aliases, anonymizing, and OFX consumers</strong></summary>
+
+### Where to get the CSV in PayPal
+
+From the PayPal web interface, download a CSV of **Bank statements** for the
+report period you want.
 
 <img src="BankStatements.png" alt="Bank statements guide" style="zoom:50%;" />
 
-Finally, open terminal in the directory where you download the report and type:
+### Optional shell alias
+
+If you want a shorter command, add an alias. Example for `bash`:
 
 ```bash
-$ ofxstatement convert -t <Conf-Name> input.csv output.ofx
+printf '\n# Paypal CSV convert to OFX format\nalias ofxPaypal="ofxstatement convert -t paypal-convert"\n' >> ~/.bash_aliases
 ```
 
-### Add Alias
-To simplify the use of the plugin, we strongly recommend adding an alias to your system (if in a Linux environment or on an emulated terminal) by adding the alias of this command to your *.bash_aliases*:
-> **Note**: this alias uses configuration name `paypal-convert`; if you use another name, change it in the alias.
+After reloading your shell, you can run:
 
 ```bash
-$ printf '\n# Paypal CSV convert to OFX format\nalias ofxPaypal="ofxstatement convert -t paypal-convert"\n' >> ~/.bash_aliases
-```
-After that, reload your terminal (close and then reopen) and the usage change to:
-```bash
-  $ ofxPaypal Paypal.csv Paypal.ofx
-```
-**Note**: If after reload alias are not loading, go in your *.bashrc* and check if follow line are present, if not, add it on the end:
-```bash
-  # Alias definitions.
-  # You may want to put all your additions into a separate file like
-  # ~/.bash_aliases, instead of adding them here directly.
-  # See /usr/share/doc/bash-doc/examples in the bash-doc package.
-
-  if [ -f ~/.bash_aliases ]; then
-      . ~/.bash_aliases
-  fi
+ofxPaypal Paypal.csv Paypal.ofx
 ```
 
-
-
-## Development
-
-The plugin uses a PEP 517/621 `pyproject.toml` layout. `pyproject.toml` is
-authoritative for packaging and the `[project.optional-dependencies].dev`
-extra is what CI installs. For local hacking you can pick whichever
-workflow you prefer — they all reach the same dev environment:
-
-### With Pipenv (recommended for local development)
-
-A `Pipfile` is checked in so contributors can spin up a local development
-environment with one command. It mirrors `pyproject.toml`'s runtime
-dependencies plus the `dev` extra, including the `build` tool used to create
-source distributions and wheels.
+If your shell does not load `~/.bash_aliases`, make sure your `~/.bashrc`
+contains something like:
 
 ```bash
-# Install pipenv if you don't have it (system, user, or pipx — your call)
-$ pip install --user pipenv
-
-# Install runtime + dev deps into a fresh virtualenv
-$ pipenv install --dev
-
-# Drop into the virtualenv shell
-$ pipenv shell
-
-# …or run a single command without entering the shell:
-$ pipenv run pytest
-$ pipenv run mypy src tests
-$ pipenv run black --check src tests
-$ pipenv run ruff check src tests
-$ pipenv run python -m build --sdist --wheel
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
 ```
 
-The plugin itself is installed in editable mode (`{editable = true,
-path = "."}` in `Pipfile`), so source edits are picked up immediately
-without reinstalling.
+### Foreign-currency purchases
 
-If you want a local lockfile for your machine, regenerate it after a `Pipfile`
-change with:
+PayPal often exports a foreign-currency purchase as a four-row group. The
+plugin collapses the redundant rows and annotates the statement-currency leg
+with `<ORIGCURRENCY>`, so OFX consumers can still display the original amount.
+
+### Anonymizing a PayPal CSV before sharing it
+
+If you need to attach a real CSV to a bug report, you can scrub it with:
 
 ```bash
-$ pipenv lock
+python3 scripts/anonymize_paypal.py input.csv output.csv [--seed N]
 ```
 
-`Pipfile.lock` is intentionally gitignored in this repository, so contributors
-can refresh it locally without creating noisy cross-platform diffs.
+The script removes personally identifying data while preserving the structure,
+locale, arithmetic, and transaction cross-references that the parser needs.
 
-### With plain pip + venv
+### What to do with the generated OFX file
+
+Once you have the OFX file, you can import it into software that accepts OFX.
+One good open-source option is [HomeBank](http://homebank.free.fr/en/index.php),
+which works well with the generated files.
+
+</details>
+
+## 4. For maintainers
+
+<details>
+<summary><strong>Release packages to PyPI</strong></summary>
+
+If you are publishing a new release:
+
+1. Update the version in `pyproject.toml`.
+2. Run tests and any checks you want before release.
+3. Remove old build artifacts.
+4. Build the package.
+5. Optionally validate the artifacts with `twine check`.
+6. Upload them to PyPI.
+
+### With Pipenv
 
 ```bash
-$ python -m venv .venv
-$ .venv/bin/pip install -e ".[dev]"
-$ .venv/bin/pytest
-$ .venv/bin/python -m build --sdist --wheel
+pipenv install --dev
+pipenv run python -m unittest discover -s tests
+rm -rf dist/
+pipenv run python -m build
+pipenv run python -m twine check dist/*
+pipenv run python -m twine upload dist/*
 ```
 
-This is the path CI uses. Convenient if you don't want to add `pipenv`
-to your toolchain.
-
-### Running the tests directly
-
-The unit tests are pure stdlib `unittest` and load the plugin module
-straight from `src/` via `importlib`, so they also run without
-installing the package at all:
+### With a plain virtualenv
 
 ```bash
-$ python3 -m unittest discover -s tests
+python -m venv .venv
+.venv/bin/pip install -e ".[dev]"
+.venv/bin/python -m unittest discover -s tests
+rm -rf dist/
+.venv/bin/python -m build
+.venv/bin/python -m twine check dist/*
+.venv/bin/python -m twine upload dist/*
 ```
 
-### Anonymizing a PayPal CSV
-
-`scripts/anonymize_paypal.py` strips personally identifying fields
-(email, name, bank details, invoice/transaction IDs) from a real PayPal
-export while preserving everything the parser cares about: column shape,
-locale-specific header labels, Description (a small fixed vocabulary of
-booking-type labels like "Bankgutschrift auf PayPal-Konto"), date
-format, decimal separator, currency codes, and the Gross/Fee/Net/Balance
-arithmetic. It
-runs on pure stdlib — no ofxstatement install required — so it's safe to
-hand to end users who want to scrub a CSV before attaching it to a bug
-report.
+### TestPyPI first
 
 ```bash
-$ python3 scripts/anonymize_paypal.py input.csv output.csv [--seed N]
+pipenv run python -m twine upload --repository testpypi dist/*
 ```
 
-Transaction-ID mapping is deterministic per seed, and `Reference Txn ID`
-entries are rewritten through the same map so cross-references between
-rows stay consistent in the anonymized output.
+`twine` authentication is usually handled via an API token stored in the
+environment or in `~/.pypirc`.
 
-## How use OFX file after conversion
+</details>
 
-The `ofx` format stands for '*Open Financial Exchange*', it can be used to transfer your accounting records from one database to another.
-Once you have the `ofx` file, you can use any program to manage your finances.
-Among the many available, a non-exhaustive list of open source products is:
-
-- [HomeBank](http://homebank.free.fr/en/index.php), continuously updated program, present everywhere except in smartphones, with many beautiful ideas and listening to the community. **100% compatibility** 

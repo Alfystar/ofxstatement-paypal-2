@@ -15,6 +15,7 @@ ofxstatement-paypal-2 = {editable = true, path = "."}
 # remove a dev tool, update both files (pyproject.toml is what `pip install -e
 # '.[dev]'` and CI consume).
 build = "*"
+twine = "*"
 pytest = "*"
 pytest-cov = "*"
 mypy = "*"

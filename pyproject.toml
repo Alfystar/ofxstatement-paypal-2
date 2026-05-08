@@ -35,6 +35,7 @@ paypal-convert = "ofxstatement.plugins.paypal:PayPalPlugin"
 [project.optional-dependencies]
 dev = [
   "build",
+  "twine",
   "pytest",
   "pytest-cov",
   "mypy",
